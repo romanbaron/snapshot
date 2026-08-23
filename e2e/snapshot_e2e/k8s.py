@@ -60,6 +60,10 @@ def read_crd(name: str) -> client.V1CustomResourceDefinition:
     return client.ApiextensionsV1Api().read_custom_resource_definition(name)
 
 
+def read_node(name: str) -> client.V1Node:
+    return client.CoreV1Api().read_node(name)
+
+
 def list_events(namespace: str) -> list[client.CoreV1Event]:
     return client.CoreV1Api().list_namespaced_event(namespace).items
 

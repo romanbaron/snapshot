@@ -70,6 +70,66 @@ def test_successful_snapshot_captures_cpu_gpu_and_fs(
 
 @pytest.mark.snapshot_success
 @pytest.mark.gpu
+def test_snapshot_records_the_facts_a_restore_is_checked_against(
+    config: k8s.E2EConfig,
+    run: snap.TestRun,
+) -> None:
+    """The recorded facts have to be the machine's, not merely present.
+
+    Everything the compatibility gates decide on is read at capture and can
+    never be recovered afterwards, so this compares each recorded fact against
+    the node object and against nvidia-smi inside the pod that was captured.
+    """
+    try:
+        source, source_node = create_ready_source(config, run, gpu=True)
+        snap.wait_for_state_observations(
+            config.namespace,
+            run.source_pod,
+            run.source_token,
+            gpu=True,
+            minimum=2,
+        )
+        # Read before the capture, while the source container is still running.
+        visible_gpus = snap.visible_gpus(config.namespace, run.source_pod)
+        assert visible_gpus, "the GPU workload could not see a GPU"
+
+        snap.create_podsnapshot(
+            config.namespace,
+            run.snapshot_name,
+            run.source_pod,
+            source.metadata.uid,
+        )
+        snap.wait_for_snapshot_ready(config.namespace, run.snapshot_name)
+        manifest = snap.checkpoint_manifest(config, source_node, run.checkpoint_id)
+
+        node_info = k8s.read_node(source_node).status.node_info
+        host = manifest["host"]
+        assert host["kernelVersion"] == node_info.kernel_version
+        assert host["cpuArch"] == node_info.architecture
+        assert host["agentVersion"], "the agent did not record which release it is"
+
+        pod = k8s.read_pod(config.namespace, run.source_pod)
+        container = next(c for c in pod.spec.containers if c.name == snap.CONTAINER)
+        status = next(s for s in pod.status.container_statuses if s.name == snap.CONTAINER)
+        limits = (container.resources.limits or {}) if container.resources else {}
+        recorded_pod = manifest["k8s"]
+        assert recorded_pod["image"] == container.image
+        assert recorded_pod["imageId"] == status.image_id
+        assert recorded_pod.get("cpuLimit", "") == limits.get("cpu", "")
+        assert recorded_pod.get("memoryLimit", "") == limits.get("memory", "")
+
+        cuda = manifest["cudaRestore"]
+        assert sorted(
+            (gpu["uuid"], gpu["productName"]) for gpu in cuda["sourceGpus"]
+        ) == sorted((gpu["uuid"], gpu["name"]) for gpu in visible_gpus)
+        assert cuda["sourceDriverVersion"] == visible_gpus[0]["driver"]
+    except Exception:
+        snap.debug_dump(config, run)
+        raise
+
+
+@pytest.mark.snapshot_success
+@pytest.mark.gpu
 def test_successful_restore_recovers_cpu_gpu_and_fs_from_snapshot(
     config: k8s.E2EConfig,
     run: snap.TestRun,
