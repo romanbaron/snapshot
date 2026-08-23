@@ -87,8 +87,13 @@ func TestCompareIgnoresUnknownFacts(t *testing.T) {
 	for _, gate := range []Gate{GatePreflight, GateInspect} {
 		for _, tc := range tests {
 			t.Run(string(gate)+" "+tc.name, func(t *testing.T) {
-				if mismatches := Compare(gate, tc.source, tc.target); len(mismatches) != 0 {
-					t.Fatalf("Compare(%q) reported %v, want no mismatches", gate, mismatches)
+				for _, mismatch := range Compare(gate, tc.source, tc.target) {
+					// The agent version is the one rule an unrecorded fact
+					// refuses, deliberately: see CheckAgentVersion.
+					if mismatch.Check == CheckAgentVersion {
+						continue
+					}
+					t.Errorf("Compare(%q) reported %+v, want no mismatches", gate, mismatch)
 				}
 			})
 		}

@@ -115,6 +115,7 @@ func (w *NodeController) preflightTargetFacts() compat.Facts {
 			// could not be running here otherwise.
 			CPUArch:       runtime.GOARCH,
 			KernelVersion: w.config.Host.KernelVersion,
+			AgentVersion:  w.config.Host.AgentVersion,
 		},
 	}
 }

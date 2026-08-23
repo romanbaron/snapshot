@@ -140,3 +140,95 @@ func TestKernelVersionCheck(t *testing.T) {
 		})
 	}
 }
+
+func TestAgentVersionCheck(t *testing.T) {
+	agent := func(value string) Facts {
+		return Facts{Host: HostFacts{AgentVersion: value}}
+	}
+
+	tests := []struct {
+		name   string
+		source Facts
+		target Facts
+		want   []Mismatch
+	}{
+		{
+			name:   "same release",
+			source: agent("0.4.1"),
+			target: agent("0.4.1"),
+		},
+		{
+			// A patch release does not change the artifact layout, so it must
+			// not invalidate a checkpoint that is otherwise restorable.
+			name:   "same minor, different patch",
+			source: agent("0.4.1"),
+			target: agent("0.4.7"),
+		},
+		{
+			name:   "different minor",
+			source: agent("0.4.1"),
+			target: agent("0.5.0"),
+			want:   []Mismatch{{Check: CheckAgentVersion, Source: "0.4.1", Target: "0.5.0"}},
+		},
+		{
+			name:   "different major",
+			source: agent("v1.0.0"),
+			target: agent("v2.0.0"),
+			want:   []Mismatch{{Check: CheckAgentVersion, Source: "v1.0.0", Target: "v2.0.0"}},
+		},
+		{
+			name:   "a leading v is not a difference",
+			source: agent("v0.4.1"),
+			target: agent("0.4.1"),
+		},
+		{
+			// The rule this whole check exists for: a checkpoint from before the
+			// agent recorded its version cannot be reasoned about at all.
+			name:   "checkpoint written before the agent recorded its version",
+			target: agent("0.4.1"),
+			want:   []Mismatch{{Check: CheckAgentVersion, Target: "0.4.1"}},
+		},
+		{
+			// CI installs the agent under an image tag that is not a release, so
+			// this node cannot say which release it is - and must not turn every
+			// restore on it down.
+			name:   "target version is not a release",
+			source: agent("0.4.1"),
+			target: agent("abc1234-snapshot-agent"),
+		},
+		{
+			// Including the case that would otherwise refuse: an unreadable
+			// target version outranks an absent source version.
+			name:   "target version is not a release and the source has none",
+			target: agent("abc1234-snapshot-agent"),
+		},
+		{
+			name:   "source version is not a release",
+			source: agent("abc1234-snapshot-agent"),
+			target: agent("0.4.1"),
+		},
+		{
+			name: "neither side knows its version",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Compare(GatePreflight, tc.source, tc.target)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("Compare = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// A refusal has to say that the checkpoint records no agent version, since that
+// is what tells an operator it was taken before the upgrade.
+func TestAgentVersionRefusalNamesTheMissingVersion(t *testing.T) {
+	mismatches := Compare(GatePreflight, Facts{}, Facts{Host: HostFacts{AgentVersion: "0.4.1"}})
+
+	want := "agent-version: source unset, target 0.4.1"
+	if got := Reasons(mismatches); got != want {
+		t.Errorf("reason = %q, want %q", got, want)
+	}
+}

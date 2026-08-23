@@ -102,6 +102,7 @@ var checks = []check{
 	cpuArchCheck,
 	kernelVersionCheck,
 	kernelMinimumCheck,
+	agentVersionCheck,
 }
 
 // mustMatch reports a mismatch unless the two values are identical. A value

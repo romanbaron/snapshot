@@ -47,7 +47,7 @@ var kernelMinimumCheck = check{
 	name: CheckKernelMinimum,
 	gate: GatePreflight,
 	compare: func(_, target Facts) []Mismatch {
-		major, minor, ok := parseKernelVersion(target.Host.KernelVersion)
+		major, minor, ok := parseMajorMinor(target.Host.KernelVersion)
 		if !ok || major > minKernelMajor || (major == minKernelMajor && minor >= minKernelMinor) {
 			return nil
 		}
@@ -58,11 +58,42 @@ var kernelMinimumCheck = check{
 	},
 }
 
-// parseKernelVersion reads the leading major.minor of a kernel release, which
-// carries a distro suffix after it as in "5.15.0-1071-aws". A release it cannot
-// read is unknown, which leaves the floor to the equality rule above.
-func parseKernelVersion(version string) (major, minor int, ok bool) {
-	fields := strings.SplitN(strings.TrimSpace(version), ".", 3)
+// CheckAgentVersion refuses a checkpoint written by an agent of a different
+// minor release. The artifact layout is the agent's private format, and only a
+// patch release promises not to change it.
+//
+// This is the one rule where an unrecorded fact refuses: a checkpoint that does
+// not say which agent wrote it predates the agent that records it, and nothing
+// about its contents can be assumed.
+const CheckAgentVersion Check = "agent-version"
+
+var agentVersionCheck = check{
+	name: CheckAgentVersion,
+	gate: GatePreflight,
+	compare: func(source, target Facts) []Mismatch {
+		targetMajor, targetMinor, ok := parseMajorMinor(target.Host.AgentVersion)
+		if !ok {
+			// A version this node cannot read decides nothing: CI installs the
+			// agent under image tags that are not releases at all, and refusing
+			// every restore there would be worse than not checking.
+			return nil
+		}
+		if source.Host.AgentVersion == "" {
+			return []Mismatch{{Target: target.Host.AgentVersion}}
+		}
+		sourceMajor, sourceMinor, ok := parseMajorMinor(source.Host.AgentVersion)
+		if !ok || (sourceMajor == targetMajor && sourceMinor == targetMinor) {
+			return nil
+		}
+		return []Mismatch{{Source: source.Host.AgentVersion, Target: target.Host.AgentVersion}}
+	},
+}
+
+// parseMajorMinor reads the leading major.minor of a version, ignoring whatever
+// follows it: kernels carry a distro suffix as in "5.15.0-1071-aws", and agent
+// versions an optional "v". A version it cannot read is unknown.
+func parseMajorMinor(version string) (major, minor int, ok bool) {
+	fields := strings.SplitN(strings.TrimPrefix(strings.TrimSpace(version), "v"), ".", 3)
 	if len(fields) < 2 {
 		return 0, 0, false
 	}

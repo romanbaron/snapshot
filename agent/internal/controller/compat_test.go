@@ -109,6 +109,7 @@ func TestPreflightMismatchesComparesRecordedFacts(t *testing.T) {
 func TestPreflightMismatchesDescribesThisNode(t *testing.T) {
 	w := makeTestController(t)
 	w.config.Host.KernelVersion = "5.15.0-1071-aws"
+	w.config.Host.AgentVersion = "0.4.1"
 	spy := &comparisonSpy{}
 	w.compareFn = spy.compare
 	dir := writeTestArtifact(t, w.config.Storage.BasePath, "abc123", &types.CheckpointManifest{
@@ -121,7 +122,11 @@ func TestPreflightMismatchesDescribesThisNode(t *testing.T) {
 	if len(spy.calls) != 1 {
 		t.Fatalf("comparison ran %d times, want once", len(spy.calls))
 	}
-	want := compat.HostFacts{CPUArch: runtime.GOARCH, KernelVersion: "5.15.0-1071-aws"}
+	want := compat.HostFacts{
+		CPUArch:       runtime.GOARCH,
+		KernelVersion: "5.15.0-1071-aws",
+		AgentVersion:  "0.4.1",
+	}
 	if got := spy.calls[0].target.Host; !reflect.DeepEqual(got, want) {
 		t.Fatalf("target host facts = %#v, want %#v", got, want)
 	}
