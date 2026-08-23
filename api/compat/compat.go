@@ -110,6 +110,8 @@ var checks = []check{
 	mountCheck,
 	gpuModelCheck,
 	gpuCountCheck,
+	driverVersionCheck,
+	driverMinimumCheck,
 }
 
 // mustMatch reports a mismatch unless the two values are identical. A value
