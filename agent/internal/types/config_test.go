@@ -40,6 +40,32 @@ func TestRestoreSpecParsesSkipCompatCheck(t *testing.T) {
 	}
 }
 
+// The agent has no build stamp of its own, so its version can only come from
+// the environment the chart sets.
+func TestLoadEnvOverridesReadsTheAgentVersion(t *testing.T) {
+	t.Run("recorded when set", func(t *testing.T) {
+		t.Setenv("SNAPSHOT_AGENT_VERSION", " 0.4.1 ")
+		cfg := &AgentConfig{}
+		cfg.LoadEnvOverrides()
+		if cfg.Host.AgentVersion != "0.4.1" {
+			t.Fatalf("Host.AgentVersion = %q, want 0.4.1", cfg.Host.AgentVersion)
+		}
+	})
+
+	// An agent that does not know its own version records nothing, rather than
+	// a blank that later reads as a version.
+	t.Run("left unknown when unset or blank", func(t *testing.T) {
+		for _, value := range []string{"", "   "} {
+			t.Setenv("SNAPSHOT_AGENT_VERSION", value)
+			cfg := &AgentConfig{}
+			cfg.LoadEnvOverrides()
+			if cfg.Host.AgentVersion != "" {
+				t.Fatalf("Host.AgentVersion = %q for %q, want empty", cfg.Host.AgentVersion, value)
+			}
+		}
+	})
+}
+
 func TestAgentConfigValidateRequiresFixedStorageBasePath(t *testing.T) {
 	for _, basePath := range []string{"checkpoints", " /checkpoints ", "/checkpoints/../other", "/other"} {
 		cfg := validAgentConfig()

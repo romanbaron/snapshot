@@ -33,11 +33,18 @@ type AgentConfig struct {
 // HostFacts holds what a checkpoint records about the node that produced it.
 type HostFacts struct {
 	KernelVersion string
+
+	// AgentVersion is the snapshot-agent release that captured a checkpoint.
+	// The agent has no build stamp, so the chart passes it in the environment.
+	AgentVersion string
 }
 
 func (c *AgentConfig) LoadEnvOverrides() {
 	if v := os.Getenv("NODE_NAME"); v != "" {
 		c.NodeName = v
+	}
+	if v := strings.TrimSpace(os.Getenv("SNAPSHOT_AGENT_VERSION")); v != "" {
+		c.Host.AgentVersion = v
 	}
 }
 
