@@ -45,6 +45,20 @@ var memoryLimitCheck = check{
 	},
 }
 
+// CheckCPULimit refuses a restore into less CPU than the checkpoint was captured
+// with. Unlike memory, too little does not fail: the workload restores, reports
+// success, and runs measurably slower forever, which is the worst outcome of the
+// three because nothing says it happened.
+const CheckCPULimit Check = "cpu-limit"
+
+var cpuLimitCheck = check{
+	name: CheckCPULimit,
+	gate: GatePreflight,
+	compare: func(source, target Facts) []Mismatch {
+		return atLeastSource(source.Pod.CPULimit, target.Pod.CPULimit)
+	},
+}
+
 // atLeastSource reports a mismatch when the target is given less than the
 // checkpoint was captured with. A quantity absent or unreadable on either side is
 // unknown - which is also how an unlimited pod reads, since a pod with no limit

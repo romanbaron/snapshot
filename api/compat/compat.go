@@ -106,6 +106,7 @@ var checks = []check{
 	imageCheck,
 	imageDigestCheck,
 	memoryLimitCheck,
+	cpuLimitCheck,
 }
 
 // mustMatch reports a mismatch unless the two values are identical. A value
