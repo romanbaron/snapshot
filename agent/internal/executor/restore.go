@@ -310,7 +310,13 @@ func inspectRestore(
 	// positional pairing turns a GPU difference into a device-map error that
 	// names neither GPU.
 	if !req.SkipCompatCheck {
-		if mismatches := compat.Compare(compat.GateInspect, manifest.CompatFacts(), compat.Facts{}); len(mismatches) > 0 {
+		sourceFacts := manifest.CompatFacts()
+		targetFacts := compat.Facts{
+			Mounts: compat.MountFacts{
+				Existing: existingMounts(targetRoot, sourceFacts.Mounts.Externalized),
+			},
+		}
+		if mismatches := compat.Compare(compat.GateInspect, sourceFacts, targetFacts); len(mismatches) > 0 {
 			return nil, 0, NewRestoreIncompatibleError(mismatches)
 		}
 	}
@@ -354,6 +360,24 @@ func inspectRestore(
 //     container. Binaries that nsrestore subsequently loads (criu, ip, tar, .so
 //     files) are still resolved by PATH/LD_LIBRARY_PATH inside the container's
 //     mount namespace.
+//
+// existingMounts reports which of the recorded destinations resolve inside the
+// placeholder's rootfs. Only what the checkpoint recorded is looked up, so a gate
+// on this path costs one stat per volume the checkpoint actually used.
+//
+// Only a path that is definitely absent is left out. Any other stat failure is
+// this agent failing to look rather than the pod missing a volume, and reporting
+// it as missing would refuse a restore that would have worked.
+func existingMounts(targetRoot string, destinations []string) []string {
+	existing := make([]string, 0, len(destinations))
+	for _, destination := range destinations {
+		if _, err := os.Stat(filepath.Join(targetRoot, destination)); !os.IsNotExist(err) {
+			existing = append(existing, destination)
+		}
+	}
+	return existing
+}
+
 func execNSRestore(ctx context.Context, log logr.Logger, req RestoreRequest, snap *types.RestoreContainerSnapshot, mp nsmount.MountPoint, checkpointPath string) (*RestoreInNamespaceResult, error) {
 
 	// Open nsrestore from the agent host side before entering the container
