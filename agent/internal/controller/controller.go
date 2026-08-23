@@ -478,6 +478,13 @@ func (w *NodeController) startRestoreForContainer(
 	}
 	annotationStatus := pod.Annotations[annotationKeys.Status]
 	annotationContainerID := pod.Annotations[annotationKeys.ContainerID]
+	if annotationStatus == snapshotv1alpha1.RestoreStatusIncompatible {
+		// Deliberately ignores the recorded container ID, unlike the terminal
+		// statuses below. A refusal is a fact about this node and this
+		// checkpoint, so a restarted container gets the same answer: re-reading
+		// the manifest and re-reporting on every resync would only add noise.
+		return
+	}
 	if annotationContainerID == containerID && (annotationStatus == snapshotv1alpha1.RestoreStatusCompleted || annotationStatus == snapshotv1alpha1.RestoreStatusFailed) {
 		return
 	}

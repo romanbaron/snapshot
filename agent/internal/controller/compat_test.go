@@ -257,6 +257,38 @@ func TestRefusalRecordsIncompatibleStatusAtBothGates(t *testing.T) {
 	})
 }
 
+// Once refused, a pod is not re-examined: not on the next resync, and not when
+// the container restarts under a new ID. The completed and failed statuses do
+// retry on a new container, so this asserts the difference on purpose.
+func TestReconcileRestorePodSkipsAlreadyRefusedContainer(t *testing.T) {
+	keys, err := snapshotv1alpha1.RestoreStatusAnnotationKeysFor("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refusedEarlier := map[string]string{
+		keys.Status:      snapshotv1alpha1.RestoreStatusIncompatible,
+		keys.ContainerID: "a-container-that-has-since-restarted",
+		keys.Reason:      "cpu-arch: source amd64, target arm64",
+	}
+
+	r := newRefusal(t, compat.Mismatch{Check: "cpu-arch", Source: "amd64", Target: "arm64"})
+	for key, value := range refusedEarlier {
+		r.pod.Annotations[key] = value
+	}
+
+	r.reconcile(t)
+
+	if len(r.comparison.calls) != 0 {
+		t.Fatalf("already refused restore was compared again: %#v", r.comparison.calls)
+	}
+	if len(r.events(t, restoreIncompatibleReason)) != 0 {
+		t.Fatal("already refused restore emitted another event")
+	}
+	if len(r.controller.inFlight) != 0 {
+		t.Fatalf("already refused restore claimed an attempt: %#v", r.controller.inFlight)
+	}
+}
+
 // A refusal that reaches the worker from the second gate is terminal: it is not
 // a CRIU failure, so it neither reports one nor kills the placeholder, and the
 // attempt stays held so the same container is not tried again.
