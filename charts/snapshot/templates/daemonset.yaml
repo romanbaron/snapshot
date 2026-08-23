@@ -122,6 +122,12 @@ spec:
                   fieldPath: spec.nodeName
             - name: SNAPSHOT_LOG_LEVEL
               value: {{ .Values.daemonset.snapshotLogLevel | quote }}
+            # From the same expression as the agent image above, so a checkpoint
+            # records the version that actually took it. The release pipeline
+            # retags images rather than rebuilding them, so a build-time stamp
+            # inside the binary would name the wrong version.
+            - name: SNAPSHOT_AGENT_VERSION
+              value: "{{ .Values.image.agent.tag | default .Chart.AppVersion }}"
           volumeMounts:
             # Mount configuration ConfigMap
             - name: config

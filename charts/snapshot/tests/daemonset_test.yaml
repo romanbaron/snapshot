@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+suite: snapshot agent version reporting
+templates:
+  - templates/daemonset.yaml
+tests:
+  - it: reports the version of the agent image it runs
+    set:
+      image.agent.tag: 0.4.1
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SNAPSHOT_AGENT_VERSION
+            value: "0.4.1"
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ":0.4.1$"
+
+  - it: reports the chart appVersion when the agent image tag is left empty
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SNAPSHOT_AGENT_VERSION
+            value: "0.1.0"
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ":0.1.0$"
