@@ -48,10 +48,9 @@ func NewSkipCompatCheckFn(path string, initial bool, log logr.Logger) func() boo
 	return func() bool {
 		cfg, err := LoadConfig(path)
 		if err != nil {
-			log.V(1).Info("Failed to re-read the restore compatibility switch; keeping the last known value",
+			log.Error(err, "Failed to re-read the restore compatibility switch; keeping the last known value",
 				"skipCompatCheck", last.Load(),
 				"path", path,
-				"error", err,
 			)
 			return last.Load()
 		}
