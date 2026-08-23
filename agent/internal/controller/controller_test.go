@@ -27,6 +27,7 @@ import (
 	"github.com/ai-dynamo/snapshot/agent/internal/nsmount"
 	snapshotruntime "github.com/ai-dynamo/snapshot/agent/internal/runtime"
 	"github.com/ai-dynamo/snapshot/agent/internal/types"
+	"github.com/ai-dynamo/snapshot/api/compat"
 	snapshotv1alpha1 "github.com/ai-dynamo/snapshot/api/v1alpha1"
 )
 
@@ -138,6 +139,9 @@ func TestNewDefaultControllerSetsDefaultOperations(t *testing.T) {
 	if w.checkpointFn == nil || w.restoreFn == nil || w.writeControlSentinelFn == nil || w.releaseCheckpointFn == nil {
 		t.Fatal("default controller operations must be initialized")
 	}
+	if w.compareFn == nil {
+		t.Fatal("default controller must compare restore compatibility")
+	}
 }
 
 // makeTestController creates a NodeController with a fake k8s client and nil executors.
@@ -158,6 +162,7 @@ func makeTestController(t *testing.T, objs ...runtime.Object) *NodeController {
 		injector:               noopInjector{},
 		restoreFn:              executor.Restore,
 		writeControlSentinelFn: func(int, string) error { return nil },
+		compareFn:              compat.Compare,
 		log:                    testr.New(t),
 		holderID:               "test-holder",
 		inFlight:               make(map[string]struct{}),

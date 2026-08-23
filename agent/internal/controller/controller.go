@@ -39,6 +39,7 @@ import (
 	"github.com/ai-dynamo/snapshot/agent/internal/nsmount"
 	snapshotruntime "github.com/ai-dynamo/snapshot/agent/internal/runtime"
 	"github.com/ai-dynamo/snapshot/agent/internal/types"
+	"github.com/ai-dynamo/snapshot/api/compat"
 	snapshotv1alpha1 "github.com/ai-dynamo/snapshot/api/v1alpha1"
 )
 
@@ -60,6 +61,7 @@ type NodeController struct {
 	restoreFn              func(context.Context, snapshotruntime.Runtime, logr.Logger, executor.RestoreRequest, executor.RestoreMounter) (int, error)
 	writeControlSentinelFn func(int, string) error
 	releaseCheckpointFn    func(containerPID int) error
+	compareFn              func(compat.Gate, compat.Facts, compat.Facts) []compat.Mismatch
 
 	inFlight   map[string]struct{}
 	inFlightMu sync.Mutex
@@ -142,6 +144,7 @@ func newDefaultController(
 
 		restoreFn:              executor.Restore,
 		writeControlSentinelFn: snapshotruntime.WriteControlSentinel,
+		compareFn:              compat.Compare,
 	}
 	w.checkpointFn = w.executorCheckpoint
 	w.releaseCheckpointFn = func(containerPID int) error {
@@ -492,6 +495,13 @@ func (w *NodeController) startRestoreForContainer(
 		return
 	}
 	if !checkpointReady {
+		return
+	}
+
+	// Gate A: the earliest point the checkpoint's own record of what it was
+	// captured on is readable, and still before the attempt is claimed, so a
+	// refusal leaves no in-flight state behind. Reporting it comes next.
+	if mismatches := w.preflightMismatches(w.log.WithValues("pod", podKey, "container", containerName), artifactPath); len(mismatches) > 0 {
 		return
 	}
 
