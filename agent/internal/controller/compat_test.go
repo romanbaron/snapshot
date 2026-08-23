@@ -202,6 +202,52 @@ func TestRefusalEmitsOneIncompatibleEventAtBothGates(t *testing.T) {
 	})
 }
 
+// The pod carries its own verdict, so a refusal survives the agent restarting
+// and is visible to anything that reads pods rather than events.
+func TestRefusalRecordsIncompatibleStatusAtBothGates(t *testing.T) {
+	mismatch := compat.Mismatch{Check: "gpu-model", Source: "Tesla T4", Target: "NVIDIA A100-SXM4-40GB"}
+	keys, err := snapshotv1alpha1.RestoreStatusAnnotationKeysFor("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertRecorded := func(t *testing.T, r *refusal, containerID string) {
+		t.Helper()
+		annotations := r.annotations(t)
+		if got := annotations[keys.Status]; got != snapshotv1alpha1.RestoreStatusIncompatible {
+			t.Fatalf("restore status = %q, want %q", got, snapshotv1alpha1.RestoreStatusIncompatible)
+		}
+		if got := annotations[keys.ContainerID]; got != containerID {
+			t.Fatalf("restore container id = %q, want %q", got, containerID)
+		}
+	}
+
+	t.Run("preflight gate", func(t *testing.T) {
+		r := newRefusal(t, mismatch)
+
+		r.reconcile(t)
+
+		assertRecorded(t, r, testContainerID)
+	})
+
+	t.Run("node gate", func(t *testing.T) {
+		r := newRefusal(t)
+		r.controller.restoreFn = func(context.Context, snapshotruntime.Runtime, logr.Logger, executor.RestoreRequest, executor.RestoreMounter) (int, error) {
+			return 0, executor.NewRestoreIncompatibleError([]compat.Mismatch{mismatch})
+		}
+
+		if err := r.controller.runRestore(
+			context.Background(), r.pod, "main", "ctr-abc", refusalCheckpointID, "attempt", time.Time{},
+		); err != nil {
+			t.Fatalf("runRestore: %v", err)
+		}
+
+		// The worker stamps in_progress before the restore runs, so the refusal
+		// has to replace it rather than leave a restore that never resolves.
+		assertRecorded(t, r, "ctr-abc")
+	})
+}
+
 // A refusal that reaches the worker from the second gate is terminal: it is not
 // a CRIU failure, so it neither reports one nor kills the placeholder, and the
 // attempt stays held so the same container is not tried again.

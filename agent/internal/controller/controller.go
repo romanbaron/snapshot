@@ -508,7 +508,12 @@ func (w *NodeController) startRestoreForContainer(
 	// refusal leaves no in-flight state behind.
 	gateLog := w.log.WithValues("pod", podKey, "container", containerName, "checkpoint_id", checkpointID)
 	if mismatches := w.preflightMismatches(gateLog, artifactPath); len(mismatches) > 0 {
-		w.reportRefusal(ctx, gateLog, pod, mismatches)
+		w.reportRefusal(ctx, gateLog, refusedRestore{
+			pod:           pod,
+			containerName: containerName,
+			containerID:   containerID,
+			mismatches:    mismatches,
+		})
 		return
 	}
 
@@ -603,7 +608,12 @@ func (w *NodeController) runRestore(ctx context.Context, pod *corev1.Pod, contai
 			// there is no half-restored process to clean up. The placeholder is
 			// deliberately left running - killing it would restart the container
 			// straight back into the same refusal.
-			w.reportRefusal(ctx, log.WithValues("container", containerName), pod, incompatible.Mismatches)
+			w.reportRefusal(ctx, log.WithValues("container", containerName), refusedRestore{
+				pod:           pod,
+				containerName: containerName,
+				containerID:   containerID,
+				mismatches:    incompatible.Mismatches,
+			})
 			releaseOnExit = false
 			return nil
 		}

@@ -11,19 +11,40 @@ import (
 
 	"github.com/ai-dynamo/snapshot/agent/internal/types"
 	"github.com/ai-dynamo/snapshot/api/compat"
+	snapshotv1alpha1 "github.com/ai-dynamo/snapshot/api/v1alpha1"
 )
+
+// refusedRestore is one restore a gate turned down, and everything needed to
+// report it.
+type refusedRestore struct {
+	pod           *corev1.Pod
+	containerName string
+	containerID   string
+	mismatches    []compat.Mismatch
+}
 
 // reportRefusal reports one refused restore. Both gates report through here, so
 // a refusal reads the same whichever one turned it down.
-func (w *NodeController) reportRefusal(
-	ctx context.Context,
-	log logr.Logger,
-	pod *corev1.Pod,
-	mismatches []compat.Mismatch,
-) {
-	reason := compat.Reasons(mismatches)
+func (w *NodeController) reportRefusal(ctx context.Context, log logr.Logger, refused refusedRestore) {
+	reason := compat.Reasons(refused.mismatches)
 	log.Info("Refusing restore; this node cannot run the checkpoint", "reason", reason)
-	emitPodEvent(ctx, w.clientset, log, pod, "snapshot", corev1.EventTypeWarning, restoreIncompatibleReason, reason)
+	emitPodEvent(
+		ctx, w.clientset, log, refused.pod, "snapshot",
+		corev1.EventTypeWarning, restoreIncompatibleReason, reason,
+	)
+
+	annotations, err := snapshotv1alpha1.RestoreStatusAnnotations(
+		refused.containerName,
+		snapshotv1alpha1.RestoreStatusIncompatible,
+		refused.containerID,
+	)
+	if err != nil {
+		log.Error(err, "Cannot record the refusal on the pod")
+		return
+	}
+	// The refusal stands whether or not it can be recorded. annotatePod logs the
+	// failure, and the log line and the event above already carry the reason.
+	_ = annotatePod(ctx, w.clientset, log, refused.pod, annotations)
 }
 
 // preflightMismatches runs the pre-flight compatibility gate for one restore.

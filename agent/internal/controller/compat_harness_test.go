@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 	clientgotesting "k8s.io/client-go/testing"
 
@@ -66,6 +67,18 @@ func (r *refusal) clientset(t *testing.T) *fake.Clientset {
 		t.Fatalf("controller clientset is %T, want *fake.Clientset", r.controller.clientset)
 	}
 	return clientset
+}
+
+// annotations reads the pod back, since a refusal is recorded by patching it.
+func (r *refusal) annotations(t *testing.T) map[string]string {
+	t.Helper()
+	updated, err := r.controller.clientset.CoreV1().
+		Pods(r.pod.Namespace).
+		Get(context.Background(), r.pod.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get restore pod: %v", err)
+	}
+	return updated.Annotations
 }
 
 // events returns every event emitted under one reason, so a test can assert on
