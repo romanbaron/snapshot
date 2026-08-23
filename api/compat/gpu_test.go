@@ -61,6 +61,14 @@ func TestGPUModelCheck(t *testing.T) {
 			target: gpus("NVIDIA L4"),
 		},
 		{
+			// Surrounding whitespace is already insignificant to the blank
+			// guard, and a refusal printing two identical-looking names is one
+			// nobody can act on.
+			name:   "the same model padded on one side",
+			source: gpus("NVIDIA L4"),
+			target: gpus(" NVIDIA L4 "),
+		},
+		{
 			// The GPUs were found but could not be described, which is not the
 			// same as being different.
 			name:   "target models could not be read",

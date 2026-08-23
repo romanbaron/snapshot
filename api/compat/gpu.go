@@ -96,10 +96,11 @@ func gpuModels(facts GPUFacts) (string, bool) {
 	}
 	counts := make(map[string]int, len(facts.Devices))
 	for _, device := range facts.Devices {
-		if strings.TrimSpace(device.ProductName) == "" {
+		model := strings.TrimSpace(device.ProductName)
+		if model == "" {
 			return "", false
 		}
-		counts[device.ProductName]++
+		counts[model]++
 	}
 
 	models := make([]string, 0, len(counts))
