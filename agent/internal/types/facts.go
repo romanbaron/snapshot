@@ -14,6 +14,11 @@ import (
 // the checkpoint recorded.
 func (m *CheckpointManifest) CompatFacts() compat.Facts {
 	return compat.Facts{
+		Host: compat.HostFacts{
+			KernelVersion: m.Host.KernelVersion,
+			CPUArch:       m.Host.CPUArch,
+			AgentVersion:  m.Host.AgentVersion,
+		},
 		GPU: m.gpuFacts(),
 		Mounts: compat.MountFacts{
 			Externalized: m.externalizedMounts(),

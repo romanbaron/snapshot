@@ -245,6 +245,7 @@ func configureCheckpoint(
 		types.NewCRIUDumpManifest(criuOpts, cfg.CRIU),
 		types.NewSourcePodManifest(req.ContainerID, state.PID, req.NodeName, req.PodName, req.PodNamespace, req.PodIP, state.StdioFDs),
 		types.NewOverlayManifest(cfg.Overlay, state.UpperDir, state.OCISpec),
+		types.NewHostManifest(cfg.Host),
 	)
 	if len(state.CUDANSPIDs) > 0 {
 		m.CUDA = types.NewCUDAManifest(state.CUDANSPIDs, state.GPUs)

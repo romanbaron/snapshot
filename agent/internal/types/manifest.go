@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ type CheckpointManifest struct {
 	K8s      SourcePodManifest `yaml:"k8s"`
 	Overlay  OverlayManifest   `yaml:"overlay"`
 	CUDA     CUDAManifest      `yaml:"cudaRestore,omitempty"`
+	Host     HostManifest      `yaml:"host,omitempty"`
 }
 
 func NewCheckpointManifest(
@@ -35,6 +37,7 @@ func NewCheckpointManifest(
 	criuDump CRIUDumpManifest,
 	k8s SourcePodManifest,
 	overlay OverlayManifest,
+	host HostManifest,
 ) *CheckpointManifest {
 	return &CheckpointManifest{
 		CheckpointID: checkpointID,
@@ -42,6 +45,26 @@ func NewCheckpointManifest(
 		CRIUDump:     criuDump,
 		K8s:          k8s,
 		Overlay:      overlay,
+		Host:         host,
+	}
+}
+
+// HostManifest records the machine a checkpoint was captured on. A fact the
+// agent could not read is left out rather than written empty, so it reads as
+// unknown instead of as a value that happens to be blank.
+type HostManifest struct {
+	KernelVersion string `yaml:"kernelVersion,omitempty"`
+	CPUArch       string `yaml:"cpuArch,omitempty"`
+	AgentVersion  string `yaml:"agentVersion,omitempty"`
+}
+
+// NewHostManifest takes the architecture from the agent binary rather than
+// asking the node: this binary is running on that node, so they agree.
+func NewHostManifest(host HostFacts) HostManifest {
+	return HostManifest{
+		KernelVersion: host.KernelVersion,
+		CPUArch:       runtime.GOARCH,
+		AgentVersion:  host.AgentVersion,
 	}
 }
 

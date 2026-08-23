@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 
 	criurpc "github.com/checkpoint-restore/go-criu/v8/rpc"
@@ -37,6 +39,7 @@ func TestManifestRoundTrip(t *testing.T) {
 			ExternalPaths:  []string{"/proc/acpi"},
 			BindMountDests: []string{"/data"},
 		},
+		NewHostManifest(HostFacts{KernelVersion: "5.15.0-1071-aws", AgentVersion: "0.4.1"}),
 	)
 	original.CUDA = NewCUDAManifest([]int{42, 43}, compat.GPUFacts{
 		DriverVersion: "580.65.06",
@@ -107,6 +110,50 @@ func TestManifestRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(loaded.CUDA.SourceGPUs, wantGPUs) {
 		t.Errorf("CUDA.SourceGPUs = %#v, want %#v", loaded.CUDA.SourceGPUs, wantGPUs)
+	}
+	wantHost := HostManifest{
+		KernelVersion: "5.15.0-1071-aws",
+		CPUArch:       runtime.GOARCH,
+		AgentVersion:  "0.4.1",
+	}
+	if !reflect.DeepEqual(loaded.Host, wantHost) {
+		t.Errorf("Host = %#v, want %#v", loaded.Host, wantHost)
+	}
+}
+
+// A host fact the agent could not read has to stay absent in the file, because a
+// comparison treats absent as unknown and an empty string as a value.
+func TestHostManifestOmitsWhatTheAgentCouldNotRead(t *testing.T) {
+	dir := t.TempDir()
+	manifest := &CheckpointManifest{CheckpointID: "sha256:abc123"}
+	if err := WriteManifest(dir, manifest); err != nil {
+		t.Fatalf("WriteManifest: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, manifestFilename))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	for _, key := range []string{"kernelVersion", "cpuArch", "agentVersion"} {
+		if strings.Contains(string(content), key) {
+			t.Errorf("manifest wrote an unknown %s:\n%s", key, content)
+		}
+	}
+}
+
+// The host facts are recorded to be compared, so what lands in the manifest has
+// to come back out as the source side of a comparison.
+func TestManifestHostFactsSurviveIntoTheComparison(t *testing.T) {
+	manifest := &CheckpointManifest{
+		Host: NewHostManifest(HostFacts{KernelVersion: "5.15.0-1071-aws", AgentVersion: "0.4.1"}),
+	}
+	want := compat.HostFacts{
+		KernelVersion: "5.15.0-1071-aws",
+		CPUArch:       runtime.GOARCH,
+		AgentVersion:  "0.4.1",
+	}
+	if got := manifest.CompatFacts().Host; !reflect.DeepEqual(got, want) {
+		t.Errorf("host facts = %#v, want %#v", got, want)
 	}
 }
 
