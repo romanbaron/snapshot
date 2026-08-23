@@ -9,10 +9,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
+	"github.com/ai-dynamo/snapshot/agent/internal/executor"
+	snapshotruntime "github.com/ai-dynamo/snapshot/agent/internal/runtime"
 	"github.com/ai-dynamo/snapshot/agent/internal/types"
 	"github.com/ai-dynamo/snapshot/api/compat"
 	snapshotv1alpha1 "github.com/ai-dynamo/snapshot/api/v1alpha1"
@@ -95,6 +99,58 @@ func TestPreflightMismatchesComparesRecordedFacts(t *testing.T) {
 	want := []string{"/etc/hosts", "/model-cache"}
 	if got := spy.calls[0].source.Mounts.Externalized; !reflect.DeepEqual(got, want) {
 		t.Fatalf("externalized mounts = %#v, want %#v", got, want)
+	}
+}
+
+// A refusal that reaches the worker from the second gate is terminal: it is not
+// a CRIU failure, so it neither reports one nor kills the placeholder, and the
+// attempt stays held so the same container is not tried again.
+func TestRunRestoreTreatsIncompatibleAsTerminal(t *testing.T) {
+	checkpointID := "abc123"
+	pod := makePod(
+		"test-pod",
+		"default",
+		testNodeName,
+		corev1.PodRunning,
+		true,
+		map[string]string{snapshotv1alpha1.CheckpointIDLabel: checkpointID},
+		nil,
+	)
+	w := makeTestController(t, pod)
+	writeTestArtifact(t, w.config.Storage.BasePath, checkpointID, &types.CheckpointManifest{CheckpointID: checkpointID})
+	rt := &fakeRuntime{}
+	w.runtime = rt
+	sentinels := 0
+	w.writeControlSentinelFn = func(int, string) error {
+		sentinels++
+		return nil
+	}
+	w.restoreFn = func(context.Context, snapshotruntime.Runtime, logr.Logger, executor.RestoreRequest, executor.RestoreMounter) (int, error) {
+		return 0, executor.NewRestoreIncompatibleError([]compat.Mismatch{{
+			Check:  "cpu-arch",
+			Source: "amd64",
+			Target: "arm64",
+		}})
+	}
+	attemptKey := "default/test-pod/main/ctr-abc"
+	w.inFlight[attemptKey] = struct{}{}
+
+	err := w.runRestore(context.Background(), pod, "main", "ctr-abc", checkpointID, attemptKey, time.Time{})
+
+	if err != nil {
+		t.Fatalf("refusal surfaced as a worker error: %v", err)
+	}
+	if sawEventReason(w.clientset.(*fake.Clientset), restoreFailedReason) {
+		t.Fatal("refusal reported itself as a restore failure")
+	}
+	if sentinels != 0 {
+		t.Fatalf("refusal wrote %d restore-complete sentinels, want 0", sentinels)
+	}
+	if len(rt.resolvedContainerIDs) != 0 {
+		t.Fatalf("refusal reached the placeholder kill path: %v", rt.resolvedContainerIDs)
+	}
+	if _, held := w.inFlight[attemptKey]; !held {
+		t.Fatal("refusal released the attempt, so the same container can be retried")
 	}
 }
 

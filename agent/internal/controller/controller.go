@@ -590,6 +590,16 @@ func (w *NodeController) runRestore(ctx context.Context, pod *corev1.Pod, contai
 	}
 	placeholderHostPID, err := w.restoreFn(restoreCtx, w.runtime, log, req, w.injector)
 	if err != nil {
+		var incompatible *executor.RestoreIncompatibleError
+		if errors.As(err, &incompatible) {
+			// Terminal, and not a failure to retry: nothing was attempted, so
+			// there is no half-restored process to clean up. The placeholder is
+			// deliberately left running - killing it would restart the container
+			// straight back into the same refusal. Reporting comes next.
+			releaseOnExit = false
+			return nil
+		}
+
 		var cleanupErr *executor.RestoreCleanupError
 		if !errors.As(err, &cleanupErr) {
 			log.Error(err, "External restore failed")

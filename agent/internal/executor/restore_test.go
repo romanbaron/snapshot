@@ -17,6 +17,7 @@ import (
 
 	"github.com/ai-dynamo/snapshot/agent/internal/nsmount"
 	"github.com/ai-dynamo/snapshot/agent/internal/types"
+	"github.com/ai-dynamo/snapshot/api/compat"
 )
 
 // testMountPoint satisfies nsmount.MountPoint for executor unit tests.
@@ -89,6 +90,30 @@ func TestNewRestoreCleanupError(t *testing.T) {
 	var typedErr *RestoreCleanupError
 	if !errors.As(retErr, &typedErr) {
 		t.Fatalf("cleanup error type = %T, want *RestoreCleanupError", retErr)
+	}
+}
+
+// The controller has to tell a refusal apart from a CRIU failure after the error
+// has crossed the Restore call chain and been wrapped on the way.
+func TestNewRestoreIncompatibleError(t *testing.T) {
+	mismatches := []compat.Mismatch{
+		{Check: "cpu-arch", Source: "amd64", Target: "arm64"},
+		{Check: "memory-limit", Source: "32Gi", Target: "1Gi"},
+	}
+	retErr := NewRestoreIncompatibleError(mismatches)
+
+	var typedErr *RestoreIncompatibleError
+	if !errors.As(fmt.Errorf("restore worker: %w", retErr), &typedErr) {
+		t.Fatalf("wrapped incompatible error did not unwrap to *RestoreIncompatibleError")
+	}
+	if !strings.Contains(retErr.Error(), "cpu-arch: source amd64, target arm64") ||
+		!strings.Contains(retErr.Error(), "memory-limit: source 32Gi, target 1Gi") {
+		t.Fatalf("incompatible error = %q, want both reasons", retErr.Error())
+	}
+
+	mismatches[0].Target = "mutated"
+	if typedErr.Mismatches[0].Target != "arm64" {
+		t.Fatalf("error kept a reference to the caller's slice: %#v", typedErr.Mismatches)
 	}
 }
 
