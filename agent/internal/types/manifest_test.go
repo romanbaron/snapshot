@@ -121,6 +121,89 @@ func TestManifestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSourcePodManifestRecordsTheImageAndItsLimits(t *testing.T) {
+	dir := t.TempDir()
+	original := &CheckpointManifest{CheckpointID: "sha256:abc123"}
+	original.K8s = NewSourcePodManifest("ctr-abc", 42, "node-1", "my-pod", "default", "10.0.0.11", nil)
+	original.K8s.Image = "nvcr.io/nvidia/tritonserver:24.09-py3"
+	original.K8s.ImageID = "docker-pullable://nvcr.io/nvidia/tritonserver@sha256:deadbeef"
+	original.K8s.CPULimit = "4"
+	original.K8s.MemoryLimit = "16Gi"
+
+	if err := WriteManifest(dir, original); err != nil {
+		t.Fatalf("WriteManifest: %v", err)
+	}
+	loaded, err := ReadManifest(dir)
+	if err != nil {
+		t.Fatalf("ReadManifest: %v", err)
+	}
+	if !reflect.DeepEqual(loaded.K8s, original.K8s) {
+		t.Errorf("K8s = %#v, want %#v", loaded.K8s, original.K8s)
+	}
+
+	want := compat.PodFacts{
+		Image:       "nvcr.io/nvidia/tritonserver:24.09-py3",
+		ImageID:     "docker-pullable://nvcr.io/nvidia/tritonserver@sha256:deadbeef",
+		CPULimit:    "4",
+		MemoryLimit: "16Gi",
+	}
+	if got := loaded.CompatFacts().Pod; !reflect.DeepEqual(got, want) {
+		t.Errorf("pod facts = %#v, want %#v", got, want)
+	}
+}
+
+// Every checkpoint already on disk was written before any of these facts
+// existed. Such an artifact has to keep parsing, and the facts it never
+// recorded have to come back unknown - the manifest carries no schema version,
+// so absent keys are the entire compatibility mechanism.
+func TestReadManifestAcceptsAnArtifactWrittenBeforeTheseFacts(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `checkpointId: sha256:abc123
+createdAt: 2026-03-31T00:00:00Z
+criuDump:
+  criu:
+    logLevel: 4
+  extMnt:
+    /etc/hostname: /etc/hostname
+k8s:
+  containerId: ctr-abc
+  pid: 42
+  sourceNode: node-1
+  podName: my-pod
+  podNamespace: default
+overlay:
+  upperDir: /var/lib/containerd/upper
+cudaRestore:
+  pids: [42]
+  sourceGpuUuids: [GPU-aaa]
+`
+	if err := os.WriteFile(filepath.Join(dir, manifestFilename), []byte(legacy), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	manifest, err := ReadManifest(dir)
+	if err != nil {
+		t.Fatalf("ReadManifest: %v", err)
+	}
+	facts := manifest.CompatFacts()
+	if (facts.Pod != compat.PodFacts{}) {
+		t.Errorf("pod facts = %#v, want unknown", facts.Pod)
+	}
+	if (facts.Host != compat.HostFacts{}) {
+		t.Errorf("host facts = %#v, want unknown", facts.Host)
+	}
+
+	// What the artifact does record still has to arrive, or the older
+	// checkpoints would stop being compared at all.
+	wantGPU := compat.GPUFacts{Devices: []compat.GPUDevice{{UUID: "GPU-aaa"}}}
+	if !reflect.DeepEqual(facts.GPU, wantGPU) {
+		t.Errorf("GPU facts = %#v, want %#v", facts.GPU, wantGPU)
+	}
+	if !reflect.DeepEqual(facts.Mounts.Externalized, []string{"/etc/hostname"}) {
+		t.Errorf("externalized mounts = %#v", facts.Mounts.Externalized)
+	}
+}
+
 // A host fact the agent could not read has to stay absent in the file, because a
 // comparison treats absent as unknown and an empty string as a value.
 func TestHostManifestOmitsWhatTheAgentCouldNotRead(t *testing.T) {

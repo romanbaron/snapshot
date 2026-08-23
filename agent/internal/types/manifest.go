@@ -108,6 +108,15 @@ type SourcePodManifest struct {
 
 	// StdioFDs holds readlink targets for FDs 0, 1, 2 (e.g. "pipe:[12345]").
 	StdioFDs []string `yaml:"stdioFDs,omitempty"`
+
+	// Image and ImageID name what the container ran; the limits describe what it
+	// was given. The image ID is recorded exactly as the runtime reported it,
+	// prefix and all, because deciding which forms mean the same image belongs
+	// to the comparison rather than to the artifact.
+	Image       string `yaml:"image,omitempty"`
+	ImageID     string `yaml:"imageId,omitempty"`
+	CPULimit    string `yaml:"cpuLimit,omitempty"`
+	MemoryLimit string `yaml:"memoryLimit,omitempty"`
 }
 
 func NewSourcePodManifest(containerID string, pid int, sourceNode, podName, podNamespace, podIP string, stdioFDs []string) SourcePodManifest {

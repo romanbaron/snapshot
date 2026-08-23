@@ -19,6 +19,12 @@ func (m *CheckpointManifest) CompatFacts() compat.Facts {
 			CPUArch:       m.Host.CPUArch,
 			AgentVersion:  m.Host.AgentVersion,
 		},
+		Pod: compat.PodFacts{
+			Image:       m.K8s.Image,
+			ImageID:     m.K8s.ImageID,
+			CPULimit:    m.K8s.CPULimit,
+			MemoryLimit: m.K8s.MemoryLimit,
+		},
 		GPU: m.gpuFacts(),
 		Mounts: compat.MountFacts{
 			Externalized: m.externalizedMounts(),
