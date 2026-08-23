@@ -478,7 +478,9 @@ func (w *NodeController) startRestoreForContainer(
 	}
 	annotationStatus := pod.Annotations[annotationKeys.Status]
 	annotationContainerID := pod.Annotations[annotationKeys.ContainerID]
-	skipCompatCheck := snapshotv1alpha1.SkipCompatCheckFromAnnotations(pod.Annotations)
+	skipByNode := w.config.Restore.SkipCompatCheck
+	skipByPod := snapshotv1alpha1.SkipCompatCheckFromAnnotations(pod.Annotations)
+	skipCompatCheck := skipByNode || skipByPod
 	if annotationStatus == snapshotv1alpha1.RestoreStatusIncompatible && !skipCompatCheck {
 		// Deliberately ignores the recorded container ID, unlike the terminal
 		// statuses below. A refusal is a fact about this node and this
@@ -518,8 +520,12 @@ func (w *NodeController) startRestoreForContainer(
 	// refusal leaves no in-flight state behind.
 	gateLog := w.log.WithValues("pod", podKey, "container", containerName, "checkpoint_id", checkpointID)
 	if skipCompatCheck {
+		// Both sources are logged, not just the winning one, so an operator
+		// chasing a skipped check can tell a one-off annotation from a node
+		// that has the gate off for everything.
 		gateLog.Info("Restore compatibility check skipped by request",
-			"annotation", snapshotv1alpha1.SkipCompatCheckAnnotation,
+			"pod_annotation", skipByPod,
+			"node_config", skipByNode,
 		)
 	} else if mismatches := w.preflightMismatches(gateLog, artifactPath); len(mismatches) > 0 {
 		w.reportRefusal(ctx, gateLog, refusedRestore{

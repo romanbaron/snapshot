@@ -290,9 +290,9 @@ func TestReconcileRestorePodSkipsAlreadyRefusedContainer(t *testing.T) {
 	}
 }
 
-// The per-restore escape hatch: with the annotation set, the gate does not run
-// at all, so a checkpoint the policy table would turn down is still attempted.
-func TestSkipCompatCheckAnnotationTurnsOffGateA(t *testing.T) {
+// The escape hatches: with either one set, the gate does not run at all, so a
+// checkpoint the policy table would turn down is still attempted.
+func TestSkipCompatCheckTurnsOffGateA(t *testing.T) {
 	mismatch := compat.Mismatch{Check: "cpu-arch", Source: "amd64", Target: "arm64"}
 
 	// Lets the restore start and end quickly, since the point here is only
@@ -308,6 +308,24 @@ func TestSkipCompatCheckAnnotationTurnsOffGateA(t *testing.T) {
 	t.Run("gate never runs", func(t *testing.T) {
 		r := newRefusal(t, mismatch)
 		r.pod.Annotations[snapshotv1alpha1.SkipCompatCheckAnnotation] = "true"
+		finished := attempt(t, r)
+
+		r.reconcile(t)
+		waitForSignal(t, finished, "the restore worker to run")
+
+		if len(r.comparison.calls) != 0 {
+			t.Fatalf("skipped gate compared anyway: %#v", r.comparison.calls)
+		}
+		if len(r.events(t, restoreIncompatibleReason)) != 0 {
+			t.Fatal("skipped gate refused the restore")
+		}
+	})
+
+	// A node with the gate off skips every restore it handles, whether or not
+	// the pod asked for it.
+	t.Run("node config turns it off for an unannotated pod", func(t *testing.T) {
+		r := newRefusal(t, mismatch)
+		r.controller.config.Restore.SkipCompatCheck = true
 		finished := attempt(t, r)
 
 		r.reconcile(t)
