@@ -62,6 +62,7 @@ def source_pod(
     gpu: bool,
     include_target_annotation: bool = True,
     include_checkpoint_label: bool = True,
+    memory_limit: str | None = None,
 ) -> dict[str, Any]:
     labels = {
         **run.labels,
@@ -78,7 +79,7 @@ def source_pod(
     }
     if include_target_annotation:
         metadata["annotations"]["nvidia.com/snapshot-target-containers"] = CONTAINER
-    spec = base_pod_spec(config, run, source_command(run.image, gpu), gpu)
+    spec = base_pod_spec(config, run, source_command(run.image, gpu), gpu, memory_limit)
     spec["containers"][0]["env"] = [
         {"name": SOURCE_TOKEN_ENV, "value": run.source_token},
     ]
@@ -96,8 +97,9 @@ def restore_pod(
     run: TestRun,
     gpu: bool,
     source_node: str | None = None,
+    memory_limit: str | None = None,
 ) -> dict[str, Any]:
-    spec = base_pod_spec(config, run, restore_command(run.image, gpu), gpu)
+    spec = base_pod_spec(config, run, restore_command(run.image, gpu), gpu, memory_limit)
     spec["securityContext"] = {
         "seccompProfile": {
             "type": "Localhost",
@@ -141,6 +143,7 @@ def base_pod_spec(
     run: TestRun,
     command: str,
     gpu: bool,
+    memory_limit: str | None = None,
 ) -> dict[str, Any]:
     container: dict[str, Any] = {
         "name": CONTAINER,
@@ -165,6 +168,9 @@ def base_pod_spec(
     if gpu:
         spec["runtimeClassName"] = "nvidia"
         container["resources"] = {"limits": {"nvidia.com/gpu": "1"}}
+    if memory_limit:
+        limits = container.setdefault("resources", {}).setdefault("limits", {})
+        limits["memory"] = memory_limit
     return spec
 
 

@@ -105,21 +105,22 @@ def wait_for_pod_ready(namespace: str, name: str, timeout: int = 600) -> client.
     return wait_for(f"pod {namespace}/{name} Ready", ready, timeout, detail=detail)
 
 
+def file_present(namespace: str, pod: str, path: str) -> bool:
+    # Require a stdout marker because exec does not expose remote exit status.
+    marker = "__snapshot_e2e_file_present__"
+    command = f"[[ -f {shlex.quote(path)} ]] && printf '%s' {shlex.quote(marker)}"
+    return k8s.exec_command(namespace, pod, command) == marker
+
+
 def wait_for_file(namespace: str, pod: str, path: str, timeout: int = 180) -> None:
     last_error: str | None = None
-    marker = "__snapshot_e2e_file_present__"
 
     def exists() -> bool | None:
         nonlocal last_error
         try:
-            # Require a stdout marker because exec does not expose remote exit status.
-            command = (
-                f"[[ -f {shlex.quote(path)} ]] && "
-                f"printf '%s' {shlex.quote(marker)}"
-            )
-            response = k8s.exec_command(namespace, pod, command)
+            present = file_present(namespace, pod, path)
             last_error = None
-            return True if response == marker else None
+            return True if present else None
         except Exception as exc:
             last_error = f"{type(exc).__name__}: {exc}"
             return None
