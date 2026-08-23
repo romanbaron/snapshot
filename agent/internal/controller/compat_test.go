@@ -100,6 +100,57 @@ func TestPreflightMismatchesComparesRecordedFacts(t *testing.T) {
 	}
 }
 
+// Both gates log the same sentence for the same refusal, so an operator greps
+// one field and does not have to know which gate turned the restore down.
+func TestRefusalIsLoggedWithTheSameReasonAtBothGates(t *testing.T) {
+	mismatch := compat.Mismatch{Check: "memory-limit", Source: "32Gi", Target: "1Gi"}
+	wantReason := "memory-limit: source 32Gi, target 1Gi"
+
+	t.Run("preflight gate", func(t *testing.T) {
+		r := newRefusal(t, mismatch)
+
+		r.reconcile(t)
+
+		reasons := r.logs.valuesFor("reason")
+		if len(reasons) != 1 {
+			t.Fatalf("logged %d reasons, want one: %v", len(reasons), reasons)
+		}
+		if reasons[0] != wantReason {
+			t.Fatalf("logged reason = %q, want %q", reasons[0], wantReason)
+		}
+		// The gate logger carries these, so a reader can find the pod a refusal
+		// belongs to without correlating on time.
+		if got := r.logs.valuesFor("pod"); len(got) == 0 || got[0] != "default/test-pod" {
+			t.Fatalf("logged pod = %v, want default/test-pod", got)
+		}
+		if got := r.logs.valuesFor("container"); len(got) == 0 || got[0] != "main" {
+			t.Fatalf("logged container = %v, want main", got)
+		}
+	})
+
+	t.Run("node gate", func(t *testing.T) {
+		r := newRefusal(t)
+		r.controller.restoreFn = func(context.Context, snapshotruntime.Runtime, logr.Logger, executor.RestoreRequest, executor.RestoreMounter) (int, error) {
+			return 0, executor.NewRestoreIncompatibleError([]compat.Mismatch{mismatch})
+		}
+
+		err := r.controller.runRestore(
+			context.Background(), r.pod, "main", "ctr-abc", refusalCheckpointID, "attempt", time.Time{},
+		)
+		if err != nil {
+			t.Fatalf("runRestore: %v", err)
+		}
+
+		reasons := r.logs.valuesFor("reason")
+		if len(reasons) != 1 {
+			t.Fatalf("logged %d reasons, want one: %v", len(reasons), reasons)
+		}
+		if reasons[0] != wantReason {
+			t.Fatalf("logged reason = %q, want %q", reasons[0], wantReason)
+		}
+	})
+}
+
 // A refusal that reaches the worker from the second gate is terminal: it is not
 // a CRIU failure, so it neither reports one nor kills the placeholder, and the
 // attempt stays held so the same container is not tried again.

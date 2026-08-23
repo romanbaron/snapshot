@@ -107,6 +107,22 @@ func (r *logRecorder) add(message string, inherited, keysAndValues []any) {
 	r.records = append(r.records, logRecord{message: message, keysAndValues: merged})
 }
 
+// valuesFor returns every value logged under a key, whether it was attached to
+// the record or inherited from the logger.
+func (r *logRecorder) valuesFor(key string) []any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var values []any
+	for _, record := range r.records {
+		for i := 0; i+1 < len(record.keysAndValues); i += 2 {
+			if name, ok := record.keysAndValues[i].(string); ok && name == key {
+				values = append(values, record.keysAndValues[i+1])
+			}
+		}
+	}
+	return values
+}
+
 type recordingSink struct {
 	recorder *logRecorder
 	values   []any

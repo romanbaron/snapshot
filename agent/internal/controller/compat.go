@@ -10,6 +10,12 @@ import (
 	"github.com/ai-dynamo/snapshot/api/compat"
 )
 
+// reportRefusal reports one refused restore. Both gates report through here, so
+// a refusal reads the same whichever one turned it down.
+func (w *NodeController) reportRefusal(log logr.Logger, mismatches []compat.Mismatch) {
+	log.Info("Refusing restore; this node cannot run the checkpoint", "reason", compat.Reasons(mismatches))
+}
+
 // preflightMismatches runs the pre-flight compatibility gate for one restore.
 // An empty result means the restore may be attempted.
 func (w *NodeController) preflightMismatches(log logr.Logger, artifactPath string) []compat.Mismatch {
