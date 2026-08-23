@@ -37,6 +37,11 @@ type CheckpointRequest struct {
 	PodNamespace       string
 	PodIP              string
 	Clientset          kubernetes.Interface
+
+	// Pod carries the image and limits the target container runs with, read from
+	// the live pod by the caller rather than here: the capture path has no API
+	// client for the pod, and the reconciler already holds it.
+	Pod compat.PodFacts
 }
 
 type checkpointPhaseTimings struct {
@@ -243,7 +248,8 @@ func configureCheckpoint(
 	m := types.NewCheckpointManifest(
 		req.CheckpointID,
 		types.NewCRIUDumpManifest(criuOpts, cfg.CRIU),
-		types.NewSourcePodManifest(req.ContainerID, state.PID, req.NodeName, req.PodName, req.PodNamespace, req.PodIP, state.StdioFDs),
+		types.NewSourcePodManifest(req.ContainerID, state.PID, req.NodeName, req.PodName, req.PodNamespace, req.PodIP, state.StdioFDs).
+			WithPodFacts(req.Pod),
 		types.NewOverlayManifest(cfg.Overlay, state.UpperDir, state.OCISpec),
 		types.NewHostManifest(cfg.Host),
 	)

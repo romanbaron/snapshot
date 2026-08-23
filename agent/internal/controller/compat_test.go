@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/ai-dynamo/snapshot/agent/internal/executor"
 	snapshotruntime "github.com/ai-dynamo/snapshot/agent/internal/runtime"
@@ -489,5 +490,71 @@ func TestReconcileRestorePodRefusesBeforeClaimingAttempt(t *testing.T) {
 	}
 	if len(r.controller.inFlight) != 0 {
 		t.Fatalf("refused restore claimed an attempt: %#v", r.controller.inFlight)
+	}
+}
+
+// The facts recorded at capture describe one container, so a multi-container pod
+// must not contribute another container's image or limits.
+func TestPodFactsReadTheTargetContainer(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{Containers: []corev1.Container{
+			{
+				Name:  "sidecar",
+				Image: "busybox:1.36",
+				Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("256Mi"),
+				}},
+			},
+			{
+				Name:  "main",
+				Image: "nvcr.io/nvidia/tritonserver:24.09-py3",
+				Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("4"),
+					corev1.ResourceMemory: resource.MustParse("16Gi"),
+				}},
+			},
+		}},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+			{Name: "sidecar", ImageID: "sha256:sidecar"},
+			{Name: "main", ImageID: "docker-pullable://nvcr.io/nvidia/tritonserver@sha256:deadbeef"},
+		}},
+	}
+
+	want := compat.PodFacts{
+		Image:       "nvcr.io/nvidia/tritonserver:24.09-py3",
+		ImageID:     "docker-pullable://nvcr.io/nvidia/tritonserver@sha256:deadbeef",
+		CPULimit:    "4",
+		MemoryLimit: "16Gi",
+	}
+	if got := podFacts(pod, "main"); !reflect.DeepEqual(got, want) {
+		t.Errorf("podFacts = %#v, want %#v", got, want)
+	}
+}
+
+// A fact the pod does not carry stays unknown. An unlimited container is not a
+// container limited to zero, and a status the kubelet has not published yet is
+// not an image ID of "".
+func TestPodFactsLeaveWhatThePodDoesNotSayUnknown(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name:  "main",
+			Image: "busybox:1.36",
+			Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("16Gi"),
+			}},
+		}}},
+	}
+
+	want := compat.PodFacts{Image: "busybox:1.36", MemoryLimit: "16Gi"}
+	if got := podFacts(pod, "main"); !reflect.DeepEqual(got, want) {
+		t.Errorf("podFacts = %#v, want %#v", got, want)
+	}
+
+	if got := podFacts(pod, "absent"); (got != compat.PodFacts{}) {
+		t.Errorf("podFacts for a container not in the pod = %#v, want unknown", got)
+	}
+	if got := podFacts(nil, "main"); (got != compat.PodFacts{}) {
+		t.Errorf("podFacts without a pod = %#v, want unknown", got)
 	}
 }
