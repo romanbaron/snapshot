@@ -100,6 +100,8 @@ type check struct {
 // reported, each pinned to the gate that can evaluate it.
 var checks = []check{
 	cpuArchCheck,
+	kernelVersionCheck,
+	kernelMinimumCheck,
 }
 
 // mustMatch reports a mismatch unless the two values are identical. A value

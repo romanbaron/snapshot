@@ -108,6 +108,7 @@ func TestPreflightMismatchesComparesRecordedFacts(t *testing.T) {
 // describe the node the agent is running on and not stay empty.
 func TestPreflightMismatchesDescribesThisNode(t *testing.T) {
 	w := makeTestController(t)
+	w.config.Host.KernelVersion = "5.15.0-1071-aws"
 	spy := &comparisonSpy{}
 	w.compareFn = spy.compare
 	dir := writeTestArtifact(t, w.config.Storage.BasePath, "abc123", &types.CheckpointManifest{
@@ -120,8 +121,9 @@ func TestPreflightMismatchesDescribesThisNode(t *testing.T) {
 	if len(spy.calls) != 1 {
 		t.Fatalf("comparison ran %d times, want once", len(spy.calls))
 	}
-	if got := spy.calls[0].target.Host.CPUArch; got != runtime.GOARCH {
-		t.Fatalf("target CPU architecture = %q, want %q", got, runtime.GOARCH)
+	want := compat.HostFacts{CPUArch: runtime.GOARCH, KernelVersion: "5.15.0-1071-aws"}
+	if got := spy.calls[0].target.Host; !reflect.DeepEqual(got, want) {
+		t.Fatalf("target host facts = %#v, want %#v", got, want)
 	}
 }
 

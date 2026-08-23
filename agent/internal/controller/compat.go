@@ -113,7 +113,8 @@ func (w *NodeController) preflightTargetFacts() compat.Facts {
 		Host: compat.HostFacts{
 			// The agent's own architecture, which is the node's: this binary
 			// could not be running here otherwise.
-			CPUArch: runtime.GOARCH,
+			CPUArch:       runtime.GOARCH,
+			KernelVersion: w.config.Host.KernelVersion,
 		},
 	}
 }
