@@ -349,7 +349,7 @@ def test_node_switch_lets_a_refused_restore_through_without_a_rollout(
         agent_before = k8s.read_pod(
             config.namespace, snap.checkpoint_agent_pod(config, source_node)
         )
-        with snap.node_skip_compat_check(config, source_node):
+        with snap.node_skip_compat_check(config):
             k8s.create_pod(
                 snap.restore_pod(
                     config=config,

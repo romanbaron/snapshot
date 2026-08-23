@@ -428,31 +428,38 @@ def agent_config_source(config: k8s.E2EConfig) -> tuple[str, str]:
     return volume.config_map.name, f"{mount.mount_path}/{AGENT_CONFIG_KEY}"
 
 
-def wait_for_agent_config(
-    config: k8s.E2EConfig, node: str, expected: str, timeout: int = 180
-) -> None:
-    """Wait for a ConfigMap edit to reach the agent on one node.
+def wait_for_agent_config(config: k8s.E2EConfig, expected: str, timeout: int = 180) -> None:
+    """Wait for a ConfigMap edit to reach every agent in the release.
 
+    The ConfigMap belongs to the release, so an edit reaches the whole
+    DaemonSet; waiting on one node would leave the others holding the old value.
     The kubelet refreshes projected ConfigMaps on its own schedule, so the file
-    inside the container is the only honest signal that an edit has landed.
+    inside each container is the only honest signal that an edit has landed.
     """
     _, path = agent_config_source(config)
-    agent = checkpoint_agent_pod(config, node)
     command = f"cat {shlex.quote(path)}"
+    agents = [
+        pod.metadata.name
+        for pod in k8s.list_snapshot_pods(config.namespace, config.release, "snapshot-agent")
+    ]
+    if not agents:
+        raise AssertionError("no snapshot agent pods to wait on")
 
-    def projected() -> bool | None:
-        return True if expected in k8s.exec_command(config.namespace, agent, command) else None
+    for agent in agents:
+        def projected(agent: str = agent) -> bool | None:
+            content = k8s.exec_command(config.namespace, agent, command)
+            return True if expected in content else None
 
-    wait_for(
-        f"{expected!r} in {agent}:{path}",
-        projected,
-        timeout,
-        detail=lambda: k8s.exec_command(config.namespace, agent, command),
-    )
+        wait_for(
+            f"{expected!r} in {agent}:{path}",
+            projected,
+            timeout,
+            detail=lambda agent=agent: k8s.exec_command(config.namespace, agent, command),
+        )
 
 
 @contextmanager
-def node_skip_compat_check(config: k8s.E2EConfig, node: str) -> Iterator[None]:
+def node_skip_compat_check(config: k8s.E2EConfig) -> Iterator[None]:
     """Turn the node switch on for the body, and put it back afterwards.
 
     Waits for the projection on both edges: leaving the switch on would let a
@@ -466,11 +473,11 @@ def node_skip_compat_check(config: k8s.E2EConfig, node: str) -> Iterator[None]:
 
     k8s.patch_config_map(config.namespace, name, {AGENT_CONFIG_KEY: original.replace(off, on)})
     try:
-        wait_for_agent_config(config, node, on)
+        wait_for_agent_config(config, on)
         yield
     finally:
         k8s.patch_config_map(config.namespace, name, {AGENT_CONFIG_KEY: original})
-        wait_for_agent_config(config, node, off)
+        wait_for_agent_config(config, off)
 
 
 def assert_restored_state(
