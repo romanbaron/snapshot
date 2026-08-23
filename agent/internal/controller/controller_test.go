@@ -135,12 +135,22 @@ func TestNewDefaultControllerSetsDefaultOperations(t *testing.T) {
 		&fakeRuntime{},
 		noopInjector{},
 		testr.New(t),
+		nil,
 	)
 	if w.checkpointFn == nil || w.restoreFn == nil || w.writeControlSentinelFn == nil || w.releaseCheckpointFn == nil {
 		t.Fatal("default controller operations must be initialized")
 	}
 	if w.compareFn == nil {
 		t.Fatal("default controller must compare restore compatibility")
+	}
+	// Without an injected read there is still one to make: the copy the agent
+	// started with, rather than a nil call on the restore path.
+	if w.skipCompatCheckFn == nil {
+		t.Fatal("default controller must resolve the node compatibility switch")
+	}
+	w.config.Restore.SkipCompatCheck = true
+	if !w.skipCompatCheckFn() {
+		t.Fatal("default controller ignored the configured node compatibility switch")
 	}
 }
 
@@ -149,7 +159,7 @@ func TestNewDefaultControllerSetsDefaultOperations(t *testing.T) {
 // the first annotatePod call and exit cleanly.
 func makeTestController(t *testing.T, objs ...runtime.Object) *NodeController {
 	t.Helper()
-	return &NodeController{
+	w := &NodeController{
 		config: &types.AgentConfig{
 			NodeName: testNodeName,
 			Storage: types.StorageSpec{
@@ -168,6 +178,8 @@ func makeTestController(t *testing.T, objs ...runtime.Object) *NodeController {
 		inFlight:               make(map[string]struct{}),
 		stopCh:                 make(chan struct{}),
 	}
+	w.skipCompatCheckFn = func() bool { return w.config.Restore.SkipCompatCheck }
+	return w
 }
 
 func sawEventReason(clientset *fake.Clientset, reason string) bool {
