@@ -318,6 +318,40 @@ def wait_for_restore_status(
     )
 
 
+def wait_for_restore_past_the_gate(
+    namespace: str,
+    pod_name: str,
+    timeout: int = 600,
+) -> client.V1Pod:
+    """Wait for any status the agent only writes once the gate has let the restore through.
+
+    in_progress is transient, so waiting for it alone is a race a fast restore wins.
+    A restore refused at the gate never reaches any of these.
+    """
+    key = "nvidia.com/snapshot-restore-status.main"
+    past = ("in_progress", "completed", "failed")
+
+    def check() -> client.V1Pod | None:
+        pod = k8s.read_pod(namespace, pod_name)
+        actual = (pod.metadata.annotations or {}).get(key)
+        return pod if actual in past else None
+
+    def detail() -> str:
+        try:
+            pod = k8s.read_pod(namespace, pod_name)
+        except ApiException as exc:
+            return f"api_error={k8s.api_error_detail(exc)}"
+        actual = (pod.metadata.annotations or {}).get(key, "<unset>")
+        return f"{key}={actual}"
+
+    return wait_for(
+        f"restore past the gate on {namespace}/{pod_name}",
+        check,
+        timeout,
+        detail=detail,
+    )
+
+
 def checkpoint_artifact_manifest(
     config: k8s.E2EConfig, node: str, checkpoint_id: str
 ) -> str:

@@ -324,7 +324,7 @@ def test_skip_annotation_lets_a_refused_restore_through(
         body["metadata"]["annotations"]["nvidia.com/snapshot-skip-compat-check"] = "true"
         k8s.create_pod(body)
 
-        snap.wait_for_restore_status(config.namespace, run.restore_pod, "in_progress")
+        snap.wait_for_restore_past_the_gate(config.namespace, run.restore_pod)
         assert "RestoreIncompatible" not in restore_event_reasons(
             config.namespace, run.restore_pod
         )
@@ -359,7 +359,7 @@ def test_node_switch_lets_a_refused_restore_through_without_a_rollout(
                     memory_limit=SKIPPABLE_MEMORY_LIMIT,
                 )
             )
-            snap.wait_for_restore_status(config.namespace, run.restore_pod, "in_progress")
+            snap.wait_for_restore_past_the_gate(config.namespace, run.restore_pod)
             assert "RestoreIncompatible" not in restore_event_reasons(
                 config.namespace, run.restore_pod
             )
