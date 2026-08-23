@@ -3,7 +3,11 @@
 
 package compat
 
-import "strings"
+import (
+	"strings"
+
+	"k8s.io/apimachinery/pkg/api/resource"
+)
 
 // CheckImage refuses a restore into a different image. A checkpoint is a process
 // tree of the binaries and libraries that image provided, and restoring it over
@@ -26,6 +30,42 @@ var imageDigestCheck = check{
 	compare: func(source, target Facts) []Mismatch {
 		return mustMatch(imageDigest(source.Pod.ImageID), imageDigest(target.Pod.ImageID))
 	},
+}
+
+// CheckMemoryLimit refuses a restore into less memory than the checkpoint was
+// captured with. Restoring faults the whole recorded address space back in, so a
+// lower ceiling is not a slower restore but an OOM kill partway through one.
+const CheckMemoryLimit Check = "memory-limit"
+
+var memoryLimitCheck = check{
+	name: CheckMemoryLimit,
+	gate: GatePreflight,
+	compare: func(source, target Facts) []Mismatch {
+		return atLeastSource(source.Pod.MemoryLimit, target.Pod.MemoryLimit)
+	},
+}
+
+// atLeastSource reports a mismatch when the target is given less than the
+// checkpoint was captured with. A quantity absent or unreadable on either side is
+// unknown - which is also how an unlimited pod reads, since a pod with no limit
+// records none.
+//
+// It is deliberately blunt: a deployment that was genuinely over-provisioned and
+// is being trimmed on purpose is refused too, and the escape hatch is the way
+// out of that.
+func atLeastSource(source, target string) []Mismatch {
+	sourceQuantity, err := resource.ParseQuantity(source)
+	if err != nil {
+		return nil
+	}
+	targetQuantity, err := resource.ParseQuantity(target)
+	if err != nil {
+		return nil
+	}
+	if targetQuantity.Cmp(sourceQuantity) >= 0 {
+		return nil
+	}
+	return []Mismatch{{Source: source, Target: target}}
 }
 
 // imageDigest reduces a container status image ID to the digest inside it.

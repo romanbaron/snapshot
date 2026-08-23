@@ -105,6 +105,7 @@ var checks = []check{
 	agentVersionCheck,
 	imageCheck,
 	imageDigestCheck,
+	memoryLimitCheck,
 }
 
 // mustMatch reports a mismatch unless the two values are identical. A value
