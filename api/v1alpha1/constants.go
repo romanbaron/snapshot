@@ -37,6 +37,10 @@ const (
 
 	// Full keys are nvidia.com/snapshot-restore-container-id.<containerName>.
 	RestoreContainerIDAnnotationPrefix = "nvidia.com/snapshot-restore-container-id."
+
+	// Full keys are nvidia.com/snapshot-restore-reason.<containerName>. Carries
+	// why a restore was refused, so the pod explains itself without agent logs.
+	RestoreReasonAnnotationPrefix = "nvidia.com/snapshot-restore-reason."
 	// Legacy unscoped restore status keys, cleared when stamping fresh metadata.
 	RestoreStatusAnnotation      = "nvidia.com/snapshot-restore-status"
 	RestoreContainerIDAnnotation = "nvidia.com/snapshot-restore-container-id"
@@ -50,6 +54,12 @@ const (
 	RestoreStatusInProgress   = "in_progress"
 	RestoreStatusCompleted    = "completed"
 	RestoreStatusFailed       = "failed"
+
+	// RestoreStatusIncompatible reports a restore refused before it was
+	// attempted, because the target cannot run what was captured. It is terminal
+	// and distinct from RestoreStatusFailed: retrying on this node cannot help,
+	// and no CRIU work was done.
+	RestoreStatusIncompatible = "incompatible"
 )
 
 // Control-volume contract: the per-pod emptyDir carrying checkpoint/restore

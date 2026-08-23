@@ -14,6 +14,7 @@ import (
 type RestoreStatusAnnotationKeys struct {
 	Status      string
 	ContainerID string
+	Reason      string
 }
 
 // ArtifactVersion normalizes an artifact version, defaulting when empty.
@@ -85,8 +86,9 @@ func RestoreStatusAnnotationKeysFor(containerName string) (RestoreStatusAnnotati
 	keys := RestoreStatusAnnotationKeys{
 		Status:      RestoreStatusAnnotationPrefix + containerName,
 		ContainerID: RestoreContainerIDAnnotationPrefix + containerName,
+		Reason:      RestoreReasonAnnotationPrefix + containerName,
 	}
-	for _, annotationKey := range []string{keys.Status, keys.ContainerID} {
+	for _, annotationKey := range []string{keys.Status, keys.ContainerID, keys.Reason} {
 		if errs := validation.IsQualifiedName(annotationKey); len(errs) > 0 {
 			return RestoreStatusAnnotationKeys{}, fmt.Errorf("container name %q cannot be used in restore status annotation key %q: %s", containerName, annotationKey, strings.Join(errs, "; "))
 		}
@@ -111,7 +113,8 @@ func clearRestoreStatusKeys(annotations map[string]string) {
 	delete(annotations, RestoreContainerIDAnnotation)
 	for key := range annotations {
 		if strings.HasPrefix(key, RestoreStatusAnnotationPrefix) ||
-			strings.HasPrefix(key, RestoreContainerIDAnnotationPrefix) {
+			strings.HasPrefix(key, RestoreContainerIDAnnotationPrefix) ||
+			strings.HasPrefix(key, RestoreReasonAnnotationPrefix) {
 			delete(annotations, key)
 		}
 	}

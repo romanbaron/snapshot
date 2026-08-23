@@ -21,6 +21,7 @@ func TestApplyRestoreTargetMetadata(t *testing.T) {
 		RestoreStatusAnnotationPrefix + "engine-1":      "completed",
 		RestoreContainerIDAnnotationPrefix + "main":     "dead-container",
 		RestoreContainerIDAnnotationPrefix + "engine-1": "dead-container",
+		RestoreReasonAnnotationPrefix + "main":          "memory-limit: source 32Gi, target 1Gi",
 		"nvidia.com/snapshot-restore-status":            "completed",
 		"nvidia.com/snapshot-restore-container-id":      "dead-container",
 		// Preserve the target-containers annotation across ApplyRestoreTargetMetadata.
@@ -46,6 +47,7 @@ func TestApplyRestoreTargetMetadata(t *testing.T) {
 		RestoreStatusAnnotationPrefix + "engine-1",
 		RestoreContainerIDAnnotationPrefix + "main",
 		RestoreContainerIDAnnotationPrefix + "engine-1",
+		RestoreReasonAnnotationPrefix + "main",
 		"nvidia.com/snapshot-restore-status",
 		"nvidia.com/snapshot-restore-container-id",
 	} {
@@ -67,6 +69,7 @@ func TestApplyRestoreTargetMetadataDisabledClearsState(t *testing.T) {
 		CheckpointStatusAnnotation:                  "completed",
 		RestoreStatusAnnotationPrefix + "main":      "failed",
 		RestoreContainerIDAnnotationPrefix + "main": "dead-container",
+		RestoreReasonAnnotationPrefix + "main":      "cpu-arch: source amd64, target arm64",
 	}
 
 	ApplyRestoreTargetMetadata(labels, annotations, false, "", "")
@@ -85,6 +88,24 @@ func TestApplyRestoreTargetMetadataDisabledClearsState(t *testing.T) {
 	}
 	if _, ok := annotations[RestoreContainerIDAnnotationPrefix+"main"]; ok {
 		t.Fatalf("per-container restore container id was not cleared: %#v", annotations)
+	}
+	if _, ok := annotations[RestoreReasonAnnotationPrefix+"main"]; ok {
+		t.Fatalf("per-container restore reason was not cleared: %#v", annotations)
+	}
+}
+
+func TestRestoreStatusAnnotationKeysForIncludesReason(t *testing.T) {
+	keys, err := RestoreStatusAnnotationKeysFor("engine-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := RestoreStatusAnnotationKeys{
+		Status:      RestoreStatusAnnotationPrefix + "engine-1",
+		ContainerID: RestoreContainerIDAnnotationPrefix + "engine-1",
+		Reason:      RestoreReasonAnnotationPrefix + "engine-1",
+	}
+	if !reflect.DeepEqual(keys, want) {
+		t.Fatalf("got %#v, want %#v", keys, want)
 	}
 }
 
