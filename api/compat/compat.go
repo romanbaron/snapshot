@@ -108,6 +108,7 @@ var checks = []check{
 	memoryLimitCheck,
 	cpuLimitCheck,
 	mountCheck,
+	gpuModelCheck,
 }
 
 // mustMatch reports a mismatch unless the two values are identical. A value

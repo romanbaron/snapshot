@@ -277,6 +277,7 @@ func inspectRestore(
 	targetRoot := fmt.Sprintf("%s/%d/root", snapshotruntime.HostProcPath, placeholderPID)
 
 	var (
+		targetGPUs        compat.GPUFacts
 		targetGPUUUIDs    []string
 		discoverDuration  time.Duration
 		deviceMapDuration time.Duration
@@ -286,7 +287,7 @@ func inspectRestore(
 			return nil, 0, fmt.Errorf("missing source GPU UUIDs in checkpoint manifest")
 		}
 		discoverStart := time.Now()
-		targetGPUUUIDs, err = cuda.DiscoverGPUUUIDs(
+		targetGPUs, err = cuda.DiscoverGPUFacts(
 			ctx,
 			req.Clientset,
 			req.PodName,
@@ -300,6 +301,9 @@ func inspectRestore(
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to get target GPU UUIDs: %w", err)
 		}
+		for _, device := range targetGPUs.Devices {
+			targetGPUUUIDs = append(targetGPUUUIDs, device.UUID)
+		}
 		if len(targetGPUUUIDs) == 0 {
 			return nil, 0, fmt.Errorf("missing target GPU UUIDs for %s/%s container %s", req.PodNamespace, req.PodName, containerName)
 		}
@@ -312,6 +316,7 @@ func inspectRestore(
 	if !req.SkipCompatCheck {
 		sourceFacts := manifest.CompatFacts()
 		targetFacts := compat.Facts{
+			GPU: targetGPUs,
 			Mounts: compat.MountFacts{
 				Existing: existingMounts(targetRoot, sourceFacts.Mounts.Externalized),
 			},
