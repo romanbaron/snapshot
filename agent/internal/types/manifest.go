@@ -13,6 +13,8 @@ import (
 	criurpc "github.com/checkpoint-restore/go-criu/v8/rpc"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ai-dynamo/snapshot/api/compat"
 )
 
 const manifestFilename = "manifest.yaml"
@@ -131,13 +133,33 @@ func NewOverlayManifest(exclusions OverlaySettings, upperDir string, ociSpec *sp
 type CUDAManifest struct {
 	PIDs           []int    `yaml:"pids"`
 	SourceGPUUUIDs []string `yaml:"sourceGpuUuids"`
+
+	// SourceGPUs describes the same GPUs as SourceGPUUUIDs, in the same order.
+	// The UUIDs stay where they are because the device map is built from them
+	// and artifacts written before this field exists still restore.
+	SourceGPUs          []GPUManifest `yaml:"sourceGpus,omitempty"`
+	SourceDriverVersion string        `yaml:"sourceDriverVersion,omitempty"`
 }
 
-func NewCUDAManifest(pids []int, sourceGPUUUIDs []string) CUDAManifest {
-	return CUDAManifest{
-		PIDs:           append([]int(nil), pids...),
-		SourceGPUUUIDs: append([]string(nil), sourceGPUUUIDs...),
+// GPUManifest is one GPU the checkpointed process could see.
+type GPUManifest struct {
+	UUID        string `yaml:"uuid"`
+	ProductName string `yaml:"productName,omitempty"`
+}
+
+func NewCUDAManifest(pids []int, gpus compat.GPUFacts) CUDAManifest {
+	m := CUDAManifest{
+		PIDs:                append([]int(nil), pids...),
+		SourceDriverVersion: gpus.DriverVersion,
 	}
+	for _, device := range gpus.Devices {
+		m.SourceGPUUUIDs = append(m.SourceGPUUUIDs, device.UUID)
+		m.SourceGPUs = append(m.SourceGPUs, GPUManifest{
+			UUID:        device.UUID,
+			ProductName: device.ProductName,
+		})
+	}
+	return m
 }
 
 func (m CUDAManifest) IsEmpty() bool {

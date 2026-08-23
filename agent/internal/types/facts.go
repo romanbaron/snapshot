@@ -14,10 +14,30 @@ import (
 // the checkpoint recorded.
 func (m *CheckpointManifest) CompatFacts() compat.Facts {
 	return compat.Facts{
+		GPU: m.gpuFacts(),
 		Mounts: compat.MountFacts{
 			Externalized: m.externalizedMounts(),
 		},
 	}
+}
+
+// gpuFacts prefers the described GPUs and falls back to the UUID list, so an
+// artifact captured before the models were recorded still reports its GPU count.
+func (m *CheckpointManifest) gpuFacts() compat.GPUFacts {
+	facts := compat.GPUFacts{DriverVersion: m.CUDA.SourceDriverVersion}
+	if len(m.CUDA.SourceGPUs) > 0 {
+		for _, gpu := range m.CUDA.SourceGPUs {
+			facts.Devices = append(facts.Devices, compat.GPUDevice{
+				UUID:        gpu.UUID,
+				ProductName: gpu.ProductName,
+			})
+		}
+		return facts
+	}
+	for _, uuid := range m.CUDA.SourceGPUUUIDs {
+		facts.Devices = append(facts.Devices, compat.GPUDevice{UUID: uuid})
+	}
+	return facts
 }
 
 // externalizedMounts returns the destinations CRIU externalized at capture, in a

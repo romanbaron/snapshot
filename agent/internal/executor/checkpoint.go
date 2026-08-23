@@ -22,6 +22,7 @@ import (
 	"github.com/ai-dynamo/snapshot/agent/internal/cuda"
 	snapshotruntime "github.com/ai-dynamo/snapshot/agent/internal/runtime"
 	"github.com/ai-dynamo/snapshot/agent/internal/types"
+	"github.com/ai-dynamo/snapshot/api/compat"
 )
 
 // CheckpointRequest holds per-checkpoint identifiers for a checkpoint operation.
@@ -77,7 +78,7 @@ func Checkpoint(ctx context.Context, rt snapshotruntime.Runtime, log logr.Logger
 	}
 	cudaJobFile := ""
 	if len(state.CUDAHostPIDs) > 0 {
-		cudaJobFile, err = cuda.StageJobFile(state.RootFS, tmpDir, len(state.GPUUUIDs))
+		cudaJobFile, err = cuda.StageJobFile(state.RootFS, tmpDir, len(state.GPUs.Devices))
 		if err != nil {
 			return err
 		}
@@ -192,11 +193,11 @@ func inspectContainer(ctx context.Context, rt snapshotruntime.Runtime, log logr.
 	if len(cudaHostPIDs) > 0 {
 		log.V(1).Info("Resolved checkpoint CUDA PID mapping", "host_pids", cudaHostPIDs, "namespace_pids", cudaNamespacePIDs)
 	}
-	var gpuUUIDs []string
+	var gpus compat.GPUFacts
 	var gpuDeviceMapDuration time.Duration
 	if len(cudaHostPIDs) > 0 {
 		gpuStart := time.Now()
-		gpuUUIDs, err = cuda.DiscoverGPUUUIDs(
+		gpus, err = cuda.DiscoverGPUFacts(
 			ctx,
 			req.Clientset,
 			req.PodName,
@@ -223,7 +224,7 @@ func inspectContainer(ctx context.Context, rt snapshotruntime.Runtime, log logr.
 		HostCgroupPath: hostCgroupPath,
 		CUDAHostPIDs:   cudaHostPIDs,
 		CUDANSPIDs:     cudaNamespacePIDs,
-		GPUUUIDs:       gpuUUIDs,
+		GPUs:           gpus,
 	}, gpuDeviceMapDuration, nil
 }
 
@@ -246,7 +247,7 @@ func configureCheckpoint(
 		types.NewOverlayManifest(cfg.Overlay, state.UpperDir, state.OCISpec),
 	)
 	if len(state.CUDANSPIDs) > 0 {
-		m.CUDA = types.NewCUDAManifest(state.CUDANSPIDs, state.GPUUUIDs)
+		m.CUDA = types.NewCUDAManifest(state.CUDANSPIDs, state.GPUs)
 	}
 
 	if err := types.WriteManifest(checkpointDir, m); err != nil {

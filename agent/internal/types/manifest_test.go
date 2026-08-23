@@ -6,10 +6,13 @@ package types
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	criurpc "github.com/checkpoint-restore/go-criu/v8/rpc"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/ai-dynamo/snapshot/api/compat"
 )
 
 func TestManifestRoundTrip(t *testing.T) {
@@ -35,7 +38,13 @@ func TestManifestRoundTrip(t *testing.T) {
 			BindMountDests: []string{"/data"},
 		},
 	)
-	original.CUDA = NewCUDAManifest([]int{42, 43}, []string{"GPU-aaa", "GPU-bbb"})
+	original.CUDA = NewCUDAManifest([]int{42, 43}, compat.GPUFacts{
+		DriverVersion: "580.65.06",
+		Devices: []compat.GPUDevice{
+			{UUID: "GPU-aaa", ProductName: "NVIDIA A100-SXM4-40GB"},
+			{UUID: "GPU-bbb", ProductName: "NVIDIA A100-SXM4-40GB"},
+		},
+	})
 
 	if err := WriteManifest(dir, original); err != nil {
 		t.Fatalf("WriteManifest: %v", err)
@@ -88,6 +97,47 @@ func TestManifestRoundTrip(t *testing.T) {
 	}
 	if len(loaded.CUDA.SourceGPUUUIDs) != 2 || loaded.CUDA.SourceGPUUUIDs[0] != "GPU-aaa" {
 		t.Errorf("CUDA.SourceGPUUUIDs = %v", loaded.CUDA.SourceGPUUUIDs)
+	}
+	if loaded.CUDA.SourceDriverVersion != "580.65.06" {
+		t.Errorf("CUDA.SourceDriverVersion = %q", loaded.CUDA.SourceDriverVersion)
+	}
+	wantGPUs := []GPUManifest{
+		{UUID: "GPU-aaa", ProductName: "NVIDIA A100-SXM4-40GB"},
+		{UUID: "GPU-bbb", ProductName: "NVIDIA A100-SXM4-40GB"},
+	}
+	if !reflect.DeepEqual(loaded.CUDA.SourceGPUs, wantGPUs) {
+		t.Errorf("CUDA.SourceGPUs = %#v, want %#v", loaded.CUDA.SourceGPUs, wantGPUs)
+	}
+}
+
+// The GPU facts are recorded to be compared, so what lands in the manifest has
+// to come back out as the source side of a comparison.
+func TestManifestGPUFactsSurviveIntoTheComparison(t *testing.T) {
+	described := &CheckpointManifest{
+		CUDA: NewCUDAManifest([]int{1}, compat.GPUFacts{
+			DriverVersion: "580.65.06",
+			Devices:       []compat.GPUDevice{{UUID: "GPU-aaa", ProductName: "NVIDIA L4"}},
+		}),
+	}
+	want := compat.GPUFacts{
+		DriverVersion: "580.65.06",
+		Devices:       []compat.GPUDevice{{UUID: "GPU-aaa", ProductName: "NVIDIA L4"}},
+	}
+	if got := described.CompatFacts().GPU; !reflect.DeepEqual(got, want) {
+		t.Errorf("described GPU facts = %#v, want %#v", got, want)
+	}
+
+	// An artifact captured before the models were recorded still has to report
+	// how many GPUs it used, or the count check would silently stop applying to
+	// every checkpoint taken so far.
+	legacy := &CheckpointManifest{
+		CUDA: CUDAManifest{PIDs: []int{1}, SourceGPUUUIDs: []string{"GPU-aaa", "GPU-bbb"}},
+	}
+	wantLegacy := compat.GPUFacts{
+		Devices: []compat.GPUDevice{{UUID: "GPU-aaa"}, {UUID: "GPU-bbb"}},
+	}
+	if got := legacy.CompatFacts().GPU; !reflect.DeepEqual(got, wantLegacy) {
+		t.Errorf("legacy GPU facts = %#v, want %#v", got, wantLegacy)
 	}
 }
 
