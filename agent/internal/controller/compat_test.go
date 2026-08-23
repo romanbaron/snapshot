@@ -137,7 +137,7 @@ func TestRefusalIsLoggedWithTheSameReasonAtBothGates(t *testing.T) {
 		}
 
 		err := r.controller.runRestore(
-			context.Background(), r.pod, "main", "ctr-abc", refusalCheckpointID, "attempt", time.Time{},
+			context.Background(), r.pod, "main", "ctr-abc", refusalCheckpointID, "attempt", time.Time{}, false,
 		)
 		if err != nil {
 			t.Fatalf("runRestore: %v", err)
@@ -194,7 +194,7 @@ func TestRefusalEmitsOneIncompatibleEventAtBothGates(t *testing.T) {
 		}
 
 		if err := r.controller.runRestore(
-			context.Background(), r.pod, "main", "ctr-abc", refusalCheckpointID, "attempt", time.Time{},
+			context.Background(), r.pod, "main", "ctr-abc", refusalCheckpointID, "attempt", time.Time{}, false,
 		); err != nil {
 			t.Fatalf("runRestore: %v", err)
 		}
@@ -247,7 +247,7 @@ func TestRefusalRecordsIncompatibleStatusAtBothGates(t *testing.T) {
 		}
 
 		if err := r.controller.runRestore(
-			context.Background(), r.pod, "main", "ctr-abc", refusalCheckpointID, "attempt", time.Time{},
+			context.Background(), r.pod, "main", "ctr-abc", refusalCheckpointID, "attempt", time.Time{}, false,
 		); err != nil {
 			t.Fatalf("runRestore: %v", err)
 		}
@@ -290,9 +290,9 @@ func TestReconcileRestorePodSkipsAlreadyRefusedContainer(t *testing.T) {
 	}
 }
 
-// The escape hatches: with either one set, the gate does not run at all, so a
-// checkpoint the policy table would turn down is still attempted.
-func TestSkipCompatCheckTurnsOffGateA(t *testing.T) {
+// The escape hatches: with either one set, neither gate runs, so a checkpoint
+// the policy table would turn down is still attempted.
+func TestSkipCompatCheckTurnsOffTheGates(t *testing.T) {
 	mismatch := compat.Mismatch{Check: "cpu-arch", Source: "amd64", Target: "arm64"}
 
 	// Lets the restore start and end quickly, since the point here is only
@@ -336,6 +336,49 @@ func TestSkipCompatCheckTurnsOffGateA(t *testing.T) {
 		}
 		if len(r.events(t, restoreIncompatibleReason)) != 0 {
 			t.Fatal("skipped gate refused the restore")
+		}
+	})
+
+	// Gate B is inside the executor, past the point where either switch can be
+	// read again, so the decision travels with the request. Without it, a
+	// skipped restore would still be refused a few steps later.
+	t.Run("the decision travels to the second gate", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			set  func(*refusal)
+			want bool
+		}{
+			{name: "checked", set: func(*refusal) {}},
+			{
+				name: "skipped by pod",
+				set: func(r *refusal) {
+					r.pod.Annotations[snapshotv1alpha1.SkipCompatCheckAnnotation] = "true"
+				},
+				want: true,
+			},
+			{
+				name: "skipped by node",
+				set:  func(r *refusal) { r.controller.config.Restore.SkipCompatCheck = true },
+				want: true,
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				r := newRefusal(t)
+				tc.set(r)
+				var requested executor.RestoreRequest
+				r.controller.restoreFn = func(_ context.Context, _ snapshotruntime.Runtime, _ logr.Logger, req executor.RestoreRequest, _ executor.RestoreMounter) (int, error) {
+					requested = req
+					return 0, errors.New("test restore stopped")
+				}
+				finished := observeEventReason(r.clientset(t), "RestoreWorkerFailed")
+
+				r.reconcile(t)
+				waitForSignal(t, finished, "the restore worker to run")
+
+				if requested.SkipCompatCheck != tc.want {
+					t.Fatalf("request carried SkipCompatCheck = %v, want %v", requested.SkipCompatCheck, tc.want)
+				}
+			})
 		}
 	})
 
@@ -411,7 +454,7 @@ func TestRunRestoreTreatsIncompatibleAsTerminal(t *testing.T) {
 	r.controller.inFlight[attemptKey] = struct{}{}
 
 	err := r.controller.runRestore(
-		context.Background(), r.pod, "main", "ctr-abc", refusalCheckpointID, attemptKey, time.Time{},
+		context.Background(), r.pod, "main", "ctr-abc", refusalCheckpointID, attemptKey, time.Time{}, false,
 	)
 
 	if err != nil {

@@ -91,6 +91,11 @@ type RestoreRequest struct {
 	TargetPodIP     string
 	ContainerName   string
 	Clientset       kubernetes.Interface
+
+	// SkipCompatCheck carries the decision the caller already made, so the
+	// second gate cannot reach a different answer than the first: one restore
+	// is either checked or it is not.
+	SkipCompatCheck bool
 }
 
 // Restore performs external restore for the given request.
@@ -304,8 +309,10 @@ func inspectRestore(
 	// rootfs are readable from here. It runs ahead of BuildDeviceMap, whose
 	// positional pairing turns a GPU difference into a device-map error that
 	// names neither GPU.
-	if mismatches := compat.Compare(compat.GateInspect, manifest.CompatFacts(), compat.Facts{}); len(mismatches) > 0 {
-		return nil, 0, NewRestoreIncompatibleError(mismatches)
+	if !req.SkipCompatCheck {
+		if mismatches := compat.Compare(compat.GateInspect, manifest.CompatFacts(), compat.Facts{}); len(mismatches) > 0 {
+			return nil, 0, NewRestoreIncompatibleError(mismatches)
+		}
 	}
 
 	cudaDeviceMap := ""

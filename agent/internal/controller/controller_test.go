@@ -815,6 +815,7 @@ func TestRunRestoreFailureEvents(t *testing.T) {
 			context.Background(), pod, "main", "ctr-abc", checkpointID,
 			"default/test-pod/main/ctr-abc",
 			time.Time{},
+			false,
 		)
 		return w
 	}
@@ -867,6 +868,7 @@ func TestRunRestoreFailureEvents(t *testing.T) {
 			context.Background(), pod, "main", "ctr-abc", checkpointID,
 			"default/test-pod/main/ctr-abc",
 			time.Time{},
+			false,
 		)
 		if err != nil {
 			t.Fatalf("cleanup failure should not fail restore: %v", err)

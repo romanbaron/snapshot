@@ -564,7 +564,7 @@ func (w *NodeController) startRestoreForContainer(
 	emitPodEvent(ctx, w.clientset, w.log, pod, "snapshot", corev1.EventTypeNormal, "RestoreRequested", fmt.Sprintf("Restore requested from checkpoint %s for container %s", checkpointID, containerName))
 
 	go func() {
-		if err := w.runRestore(ctx, pod, containerName, containerID, checkpointID, restoreAttemptKey, startedAt); err != nil {
+		if err := w.runRestore(ctx, pod, containerName, containerID, checkpointID, restoreAttemptKey, startedAt, skipCompatCheck); err != nil {
 			opLog := w.log.WithValues("pod", podKey, "checkpoint_id", checkpointID, "container", containerName)
 			opLog.Error(err, "Restore controller worker failed")
 			emitPodEvent(ctx, w.clientset, opLog, pod, "snapshot", corev1.EventTypeWarning, "RestoreWorkerFailed", err.Error())
@@ -582,7 +582,7 @@ func (w *NodeController) startRestoreForContainer(
 //     inside the polling loop that waits on this file, exits quiescence,
 //     and resumes the engine
 //  4. Annotate the pod with restore completed
-func (w *NodeController) runRestore(ctx context.Context, pod *corev1.Pod, containerName, containerID, checkpointID string, restoreAttemptKey string, startedAt time.Time) error {
+func (w *NodeController) runRestore(ctx context.Context, pod *corev1.Pod, containerName, containerID, checkpointID string, restoreAttemptKey string, startedAt time.Time, skipCompatCheck bool) error {
 	releaseOnExit := true
 	defer func() {
 		if releaseOnExit {
@@ -632,6 +632,7 @@ func (w *NodeController) runRestore(ctx context.Context, pod *corev1.Pod, contai
 		TargetPodIP:     pod.Status.PodIP,
 		ContainerName:   containerName,
 		Clientset:       w.clientset,
+		SkipCompatCheck: skipCompatCheck,
 	}
 	placeholderHostPID, err := w.restoreFn(restoreCtx, w.runtime, log, req, w.injector)
 	if err != nil {
