@@ -4,7 +4,10 @@
 package controller
 
 import (
+	"context"
+
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/ai-dynamo/snapshot/agent/internal/types"
 	"github.com/ai-dynamo/snapshot/api/compat"
@@ -12,8 +15,15 @@ import (
 
 // reportRefusal reports one refused restore. Both gates report through here, so
 // a refusal reads the same whichever one turned it down.
-func (w *NodeController) reportRefusal(log logr.Logger, mismatches []compat.Mismatch) {
-	log.Info("Refusing restore; this node cannot run the checkpoint", "reason", compat.Reasons(mismatches))
+func (w *NodeController) reportRefusal(
+	ctx context.Context,
+	log logr.Logger,
+	pod *corev1.Pod,
+	mismatches []compat.Mismatch,
+) {
+	reason := compat.Reasons(mismatches)
+	log.Info("Refusing restore; this node cannot run the checkpoint", "reason", reason)
+	emitPodEvent(ctx, w.clientset, log, pod, "snapshot", corev1.EventTypeWarning, restoreIncompatibleReason, reason)
 }
 
 // preflightMismatches runs the pre-flight compatibility gate for one restore.

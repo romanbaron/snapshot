@@ -79,6 +79,11 @@ const (
 	restoreContainerResolveTimeout  = 30 * time.Second
 	restoreFailedReason             = "RestoreFailed"
 
+	// restoreIncompatibleReason stays separate from restoreFailedReason: a
+	// refusal attempted nothing, so alerting that pages on restore failures
+	// should be able to leave it alone.
+	restoreIncompatibleReason = "RestoreIncompatible"
+
 	// snapshotContentResyncInterval re-drives every PodSnapshotContent work order so a
 	// not-yet-Ready source pod is re-checked for quiesce without a busy loop.
 	snapshotContentResyncInterval = 10 * time.Second
@@ -503,7 +508,7 @@ func (w *NodeController) startRestoreForContainer(
 	// refusal leaves no in-flight state behind.
 	gateLog := w.log.WithValues("pod", podKey, "container", containerName, "checkpoint_id", checkpointID)
 	if mismatches := w.preflightMismatches(gateLog, artifactPath); len(mismatches) > 0 {
-		w.reportRefusal(gateLog, mismatches)
+		w.reportRefusal(ctx, gateLog, pod, mismatches)
 		return
 	}
 
@@ -598,7 +603,7 @@ func (w *NodeController) runRestore(ctx context.Context, pod *corev1.Pod, contai
 			// there is no half-restored process to clean up. The placeholder is
 			// deliberately left running - killing it would restart the container
 			// straight back into the same refusal.
-			w.reportRefusal(log.WithValues("container", containerName), incompatible.Mismatches)
+			w.reportRefusal(ctx, log.WithValues("container", containerName), pod, incompatible.Mismatches)
 			releaseOnExit = false
 			return nil
 		}

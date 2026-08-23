@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/ai-dynamo/snapshot/agent/internal/executor"
 	snapshotruntime "github.com/ai-dynamo/snapshot/agent/internal/runtime"
@@ -148,6 +149,56 @@ func TestRefusalIsLoggedWithTheSameReasonAtBothGates(t *testing.T) {
 		if reasons[0] != wantReason {
 			t.Fatalf("logged reason = %q, want %q", reasons[0], wantReason)
 		}
+	})
+}
+
+// The refusal event is its own reason, so alerting that pages on restore
+// failures does not fire on a restore that was never attempted.
+func TestRefusalEmitsOneIncompatibleEventAtBothGates(t *testing.T) {
+	mismatch := compat.Mismatch{Check: "cpu-arch", Source: "amd64", Target: "arm64"}
+	wantMessage := "cpu-arch: source amd64, target arm64"
+
+	assertOneEvent := func(t *testing.T, r *refusal) {
+		t.Helper()
+		events := r.events(t, restoreIncompatibleReason)
+		if len(events) != 1 {
+			t.Fatalf("emitted %d %s events, want one", len(events), restoreIncompatibleReason)
+		}
+		if events[0].Message != wantMessage {
+			t.Fatalf("event message = %q, want %q", events[0].Message, wantMessage)
+		}
+		if events[0].Type != corev1.EventTypeWarning {
+			t.Fatalf("event type = %q, want %q", events[0].Type, corev1.EventTypeWarning)
+		}
+		if len(r.events(t, restoreFailedReason)) != 0 {
+			t.Fatalf("refusal also emitted a %s event", restoreFailedReason)
+		}
+	}
+
+	t.Run("preflight gate", func(t *testing.T) {
+		r := newRefusal(t, mismatch)
+
+		r.reconcile(t)
+
+		assertOneEvent(t, r)
+		if len(r.events(t, "RestoreRequested")) != 0 {
+			t.Fatal("refused restore still announced RestoreRequested")
+		}
+	})
+
+	t.Run("node gate", func(t *testing.T) {
+		r := newRefusal(t)
+		r.controller.restoreFn = func(context.Context, snapshotruntime.Runtime, logr.Logger, executor.RestoreRequest, executor.RestoreMounter) (int, error) {
+			return 0, executor.NewRestoreIncompatibleError([]compat.Mismatch{mismatch})
+		}
+
+		if err := r.controller.runRestore(
+			context.Background(), r.pod, "main", "ctr-abc", refusalCheckpointID, "attempt", time.Time{},
+		); err != nil {
+			t.Fatalf("runRestore: %v", err)
+		}
+
+		assertOneEvent(t, r)
 	})
 }
 
