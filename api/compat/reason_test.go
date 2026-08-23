@@ -25,8 +25,8 @@ func TestMismatchReason(t *testing.T) {
 		},
 		{
 			name:     "target unreadable",
-			mismatch: Mismatch{Check: "gpu-driver-version", Source: "580.82.07"},
-			want:     "gpu-driver-version: source 580.82.07, target unset",
+			mismatch: Mismatch{Check: CheckDriverVersion, Source: "580.82.07"},
+			want:     "driver-version: source 580.82.07, target unset",
 		},
 		{
 			name:     "blank values are unset",
