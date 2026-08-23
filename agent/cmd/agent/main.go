@@ -38,6 +38,15 @@ func main() {
 	if err := cfg.Validate(); err != nil {
 		fatal(agentLog, err, "Invalid configuration")
 	}
+	// A host fact that cannot be read is unknown, never fatal: the node keeps
+	// capturing and restoring, and the checks that need it do not apply.
+	if kernelVersion, err := snapshotruntime.ReadKernelVersion(snapshotruntime.HostProcPath); err != nil {
+		agentLog.V(1).Info("Failed to read the host kernel version; checkpoints taken here will not record it",
+			"error", err,
+		)
+	} else {
+		cfg.Host.KernelVersion = kernelVersion
+	}
 
 	rt, err := snapshotruntime.New(*runtimeType, *runtimeSocket)
 	if err != nil {

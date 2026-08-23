@@ -23,6 +23,16 @@ type AgentConfig struct {
 	Overlay  OverlaySettings `yaml:"overlay"`
 	Restore  RestoreSpec     `yaml:"restore"`
 	CRIU     CRIUSettings    `yaml:"criu"`
+
+	// Host describes the machine this agent runs on. Read once at startup and
+	// recorded into every checkpoint taken here, because none of it can change
+	// without the pod restarting.
+	Host HostFacts `yaml:"-"`
+}
+
+// HostFacts holds what a checkpoint records about the node that produced it.
+type HostFacts struct {
+	KernelVersion string
 }
 
 func (c *AgentConfig) LoadEnvOverrides() {
