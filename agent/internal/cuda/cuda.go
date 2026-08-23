@@ -32,6 +32,11 @@ const (
 	// DefaultHelperBinaryPath is the agent-side cuda-checkpoint-helper absolute path.
 	// In the placeholder namespace pass filepath.Join(bundleDir, HelperBinaryName) instead.
 	DefaultHelperBinaryPath = "/usr/local/bin/" + HelperBinaryName
+
+	// describeGPUsTimeout bounds the nvidia-smi call that only adds detail to
+	// GPUs already resolved. The agent's own context carries no deadline, so a
+	// hung nsenter would otherwise block the worker for good.
+	describeGPUsTimeout = 30 * time.Second
 )
 
 var podResourcesSocketPath = "/var/lib/kubelet/pod-resources/kubelet.sock"
@@ -218,8 +223,13 @@ func discoverGPUFacts(
 	}
 	if len(gpuUUIDs) > 0 {
 		// This path has its GPUs already and needs nvidia-smi only to describe
-		// them, so a failure here costs facts, not the checkpoint.
-		visible, err := discoverVisibleGPUs(ctx, hostProcPath, pid)
+		// them, so a failure here costs facts, not the checkpoint. It is also
+		// the only call where a deadline is safe: the paths that depend on
+		// nvidia-smi for the UUIDs themselves would turn a slow node into a
+		// failed capture.
+		describeCtx, cancel := context.WithTimeout(ctx, describeGPUsTimeout)
+		defer cancel()
+		visible, err := discoverVisibleGPUs(describeCtx, hostProcPath, pid)
 		if err != nil {
 			log.V(1).Info("Failed to describe PodResources GPUs; recording their UUIDs alone",
 				"pid", pid,

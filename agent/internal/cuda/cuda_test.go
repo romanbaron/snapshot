@@ -565,6 +565,50 @@ func TestDiscoverGPUFactsDescribesPodResourcesGPUs(t *testing.T) {
 	}
 }
 
+// The agent's own context carries no deadline, so a hung nsenter would block the
+// worker for good. The call that only adds detail has to bound itself.
+func TestDescribingPodResourcesGPUsCarriesItsOwnDeadline(t *testing.T) {
+	installTestPodResourcesServer(t, &podresourcesv1.ListPodResourcesResponse{
+		PodResources: []*podresourcesv1.PodResources{
+			{
+				Name:      "test-pod",
+				Namespace: "default",
+				Containers: []*podresourcesv1.ContainerResources{
+					{
+						Name: "main",
+						Devices: []*podresourcesv1.ContainerDevices{
+							{
+								ResourceName: nvidiaGPUResource,
+								DeviceIds:    []string{"GPU-a"},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	var bounded bool
+	visible := func(ctx context.Context, _ string, _ int) (compat.GPUFacts, error) {
+		_, bounded = ctx.Deadline()
+		return compat.GPUFacts{}, errors.New("nsenter unavailable")
+	}
+
+	got, err := discoverGPUFacts(
+		context.Background(), nil, "test-pod", "default", "main", "/proc", 123, visible, logr.Discard(),
+	)
+	if err != nil {
+		t.Fatalf("discoverGPUFacts: %v", err)
+	}
+	if !bounded {
+		t.Error("the nvidia-smi describe call ran with no deadline")
+	}
+	want := compat.GPUFacts{Devices: []compat.GPUDevice{{UUID: "GPU-a"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("discoverGPUFacts() = %#v, want %#v", got, want)
+	}
+}
+
 func TestOrderDRAUUIDsByRuntimeRejectsMismatches(t *testing.T) {
 	uuid0 := "GPU-aaaaaaaa-1111-2222-3333-444444444444"
 	uuid1 := "GPU-bbbbbbbb-5555-6666-7777-888888888888"
