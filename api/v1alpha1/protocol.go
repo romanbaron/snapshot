@@ -108,6 +108,21 @@ func RestoreStatusAnnotations(containerName, status, containerID string) (map[st
 	}, nil
 }
 
+// RestoreIncompatibleAnnotations builds the per-container annotations that record
+// a refused restore: the terminal status, the container incarnation it was
+// refused for, and why.
+func RestoreIncompatibleAnnotations(containerName, containerID, reason string) (map[string]string, error) {
+	keys, err := RestoreStatusAnnotationKeysFor(containerName)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		keys.Status:      RestoreStatusIncompatible,
+		keys.ContainerID: containerID,
+		keys.Reason:      reason,
+	}, nil
+}
+
 func clearRestoreStatusKeys(annotations map[string]string) {
 	delete(annotations, RestoreStatusAnnotation)
 	delete(annotations, RestoreContainerIDAnnotation)

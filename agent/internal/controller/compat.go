@@ -33,10 +33,10 @@ func (w *NodeController) reportRefusal(ctx context.Context, log logr.Logger, ref
 		corev1.EventTypeWarning, restoreIncompatibleReason, reason,
 	)
 
-	annotations, err := snapshotv1alpha1.RestoreStatusAnnotations(
+	annotations, err := snapshotv1alpha1.RestoreIncompatibleAnnotations(
 		refused.containerName,
-		snapshotv1alpha1.RestoreStatusIncompatible,
 		refused.containerID,
+		reason,
 	)
 	if err != nil {
 		log.Error(err, "Cannot record the refusal on the pod")

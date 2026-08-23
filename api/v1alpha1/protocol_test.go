@@ -194,6 +194,26 @@ func TestRestoreStatusAnnotations(t *testing.T) {
 	}
 }
 
+func TestRestoreIncompatibleAnnotations(t *testing.T) {
+	reason := "memory-limit: source 32Gi, target 1Gi"
+	got, err := RestoreIncompatibleAnnotations("engine-1", "container-id", reason)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := map[string]string{
+		RestoreStatusAnnotationPrefix + "engine-1":      RestoreStatusIncompatible,
+		RestoreContainerIDAnnotationPrefix + "engine-1": "container-id",
+		RestoreReasonAnnotationPrefix + "engine-1":      reason,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+
+	if _, err := RestoreIncompatibleAnnotations(strings.Repeat("a", 200), "container-id", reason); err == nil {
+		t.Fatalf("expected invalid annotation key error")
+	}
+}
+
 func TestRestoreStatusAnnotationsRejectsInvalidContainerName(t *testing.T) {
 	_, err := RestoreStatusAnnotations(strings.Repeat("a", 200), RestoreStatusInProgress, "container-id")
 	if err == nil {

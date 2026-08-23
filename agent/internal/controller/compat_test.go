@@ -220,6 +220,15 @@ func TestRefusalRecordsIncompatibleStatusAtBothGates(t *testing.T) {
 		if got := annotations[keys.ContainerID]; got != containerID {
 			t.Fatalf("restore container id = %q, want %q", got, containerID)
 		}
+		// The same sentence the log line and the event carry, so a reader who
+		// starts from the pod does not get a different answer.
+		wantReason := "gpu-model: source Tesla T4, target NVIDIA A100-SXM4-40GB"
+		if got := annotations[keys.Reason]; got != wantReason {
+			t.Fatalf("restore reason = %q, want %q", got, wantReason)
+		}
+		if reasons := r.logs.valuesFor("reason"); len(reasons) != 1 || reasons[0] != wantReason {
+			t.Fatalf("logged reasons = %v, want exactly %q", reasons, wantReason)
+		}
 	}
 
 	t.Run("preflight gate", func(t *testing.T) {
