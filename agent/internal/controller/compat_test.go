@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/ai-dynamo/snapshot/agent/internal/executor"
 	snapshotruntime "github.com/ai-dynamo/snapshot/agent/internal/runtime"
@@ -106,26 +104,15 @@ func TestPreflightMismatchesComparesRecordedFacts(t *testing.T) {
 // a CRIU failure, so it neither reports one nor kills the placeholder, and the
 // attempt stays held so the same container is not tried again.
 func TestRunRestoreTreatsIncompatibleAsTerminal(t *testing.T) {
-	checkpointID := "abc123"
-	pod := makePod(
-		"test-pod",
-		"default",
-		testNodeName,
-		corev1.PodRunning,
-		true,
-		map[string]string{snapshotv1alpha1.CheckpointIDLabel: checkpointID},
-		nil,
-	)
-	w := makeTestController(t, pod)
-	writeTestArtifact(t, w.config.Storage.BasePath, checkpointID, &types.CheckpointManifest{CheckpointID: checkpointID})
+	r := newRefusal(t)
 	rt := &fakeRuntime{}
-	w.runtime = rt
+	r.controller.runtime = rt
 	sentinels := 0
-	w.writeControlSentinelFn = func(int, string) error {
+	r.controller.writeControlSentinelFn = func(int, string) error {
 		sentinels++
 		return nil
 	}
-	w.restoreFn = func(context.Context, snapshotruntime.Runtime, logr.Logger, executor.RestoreRequest, executor.RestoreMounter) (int, error) {
+	r.controller.restoreFn = func(context.Context, snapshotruntime.Runtime, logr.Logger, executor.RestoreRequest, executor.RestoreMounter) (int, error) {
 		return 0, executor.NewRestoreIncompatibleError([]compat.Mismatch{{
 			Check:  "cpu-arch",
 			Source: "amd64",
@@ -133,14 +120,16 @@ func TestRunRestoreTreatsIncompatibleAsTerminal(t *testing.T) {
 		}})
 	}
 	attemptKey := "default/test-pod/main/ctr-abc"
-	w.inFlight[attemptKey] = struct{}{}
+	r.controller.inFlight[attemptKey] = struct{}{}
 
-	err := w.runRestore(context.Background(), pod, "main", "ctr-abc", checkpointID, attemptKey, time.Time{})
+	err := r.controller.runRestore(
+		context.Background(), r.pod, "main", "ctr-abc", refusalCheckpointID, attemptKey, time.Time{},
+	)
 
 	if err != nil {
 		t.Fatalf("refusal surfaced as a worker error: %v", err)
 	}
-	if sawEventReason(w.clientset.(*fake.Clientset), restoreFailedReason) {
+	if len(r.events(t, restoreFailedReason)) != 0 {
 		t.Fatal("refusal reported itself as a restore failure")
 	}
 	if sentinels != 0 {
@@ -149,7 +138,7 @@ func TestRunRestoreTreatsIncompatibleAsTerminal(t *testing.T) {
 	if len(rt.resolvedContainerIDs) != 0 {
 		t.Fatalf("refusal reached the placeholder kill path: %v", rt.resolvedContainerIDs)
 	}
-	if _, held := w.inFlight[attemptKey]; !held {
+	if _, held := r.controller.inFlight[attemptKey]; !held {
 		t.Fatal("refusal released the attempt, so the same container can be retried")
 	}
 }
@@ -157,34 +146,17 @@ func TestRunRestoreTreatsIncompatibleAsTerminal(t *testing.T) {
 // The gate sits before the attempt is claimed, so a refusal leaves no in-flight
 // entry and no restore worker behind.
 func TestReconcileRestorePodRefusesBeforeClaimingAttempt(t *testing.T) {
-	checkpointID := "abc123"
-	pod := makePod(
-		"test-pod",
-		"default",
-		testNodeName,
-		corev1.PodRunning,
-		false,
-		map[string]string{snapshotv1alpha1.CheckpointIDLabel: checkpointID},
-		nil,
-	)
-	w := makeTestController(t, pod)
-	spy := &comparisonSpy{mismatches: []compat.Mismatch{{
-		Check:  "memory-limit",
-		Source: "32Gi",
-		Target: "1Gi",
-	}}}
-	w.compareFn = spy.compare
-	writeTestArtifact(t, w.config.Storage.BasePath, checkpointID, &types.CheckpointManifest{CheckpointID: checkpointID})
+	r := newRefusal(t, compat.Mismatch{Check: "memory-limit", Source: "32Gi", Target: "1Gi"})
 
-	w.reconcileRestorePod(context.Background(), pod)
+	r.reconcile(t)
 
-	if len(spy.calls) != 1 {
-		t.Fatalf("comparison ran %d times, want once", len(spy.calls))
+	if len(r.comparison.calls) != 1 {
+		t.Fatalf("comparison ran %d times, want once", len(r.comparison.calls))
 	}
-	if sawEventReason(w.clientset.(*fake.Clientset), "RestoreRequested") {
+	if len(r.events(t, "RestoreRequested")) != 0 {
 		t.Fatal("refused restore still announced RestoreRequested")
 	}
-	if len(w.inFlight) != 0 {
-		t.Fatalf("refused restore claimed an attempt: %#v", w.inFlight)
+	if len(r.controller.inFlight) != 0 {
+		t.Fatalf("refused restore claimed an attempt: %#v", r.controller.inFlight)
 	}
 }
