@@ -28,6 +28,28 @@ var gpuModelCheck = check{
 	},
 }
 
+// CheckGPUCount refuses a restore onto a different number of GPUs. A multi-GPU
+// checkpoint holds one piece of device state per GPU with a rank each, and there
+// is no meaning to be given to a rank that has nowhere to land - or to a GPU no
+// rank was recorded for.
+const CheckGPUCount Check = "gpu-count"
+
+var gpuCountCheck = check{
+	name: CheckGPUCount,
+	gate: GateInspect,
+	compare: func(source, target Facts) []Mismatch {
+		sourceCount := len(source.GPU.Devices)
+		targetCount := len(target.GPU.Devices)
+		if sourceCount == 0 || targetCount == 0 || sourceCount == targetCount {
+			return nil
+		}
+		return []Mismatch{{
+			Source: strconv.Itoa(sourceCount),
+			Target: strconv.Itoa(targetCount),
+		}}
+	},
+}
+
 // gpuModels renders the models one side offers as a counted, sorted list: the
 // same GPUs allocated in another order are the same set, and which device sits
 // at which index is the device map's problem rather than this rule's.
