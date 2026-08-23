@@ -57,34 +57,30 @@ func differentFacts() Facts {
 	}
 }
 
-// An empty policy table refuses nothing, whatever it is handed. Every rule is
-// registered by a later change, and each one brings its own cases here.
-func TestCompareWithoutRegisteredChecks(t *testing.T) {
+// Whatever rules are registered, a fact nobody recorded cannot refuse anything:
+// every checkpoint captured before a fact existed has to stay restorable, and a
+// target the agent could not read has to be given the benefit of the doubt.
+func TestCompareIgnoresUnknownFacts(t *testing.T) {
 	tests := []struct {
 		name   string
 		source Facts
 		target Facts
 	}{
 		{
-			name: "both sides empty",
+			name: "neither side knows anything",
 		},
 		{
-			name:   "source populated, target empty",
+			name:   "the checkpoint recorded facts the target cannot describe",
 			source: populatedFacts(),
 		},
 		{
-			name:   "target populated, source empty",
+			name:   "the target describes facts the checkpoint never recorded",
 			target: populatedFacts(),
 		},
 		{
-			name:   "both sides populated and equal",
+			name:   "both sides agree",
 			source: populatedFacts(),
 			target: populatedFacts(),
-		},
-		{
-			name:   "both sides populated and different",
-			source: populatedFacts(),
-			target: differentFacts(),
 		},
 	}
 
@@ -95,6 +91,39 @@ func TestCompareWithoutRegisteredChecks(t *testing.T) {
 					t.Fatalf("Compare(%q) reported %v, want no mismatches", gate, mismatches)
 				}
 			})
+		}
+	}
+}
+
+// Every registered rule reports itself, or a refusal names an empty check and
+// nobody can tell which rule turned the restore down.
+func TestEveryCheckIsNamedAndGated(t *testing.T) {
+	seen := map[Check]bool{}
+	for _, c := range checks {
+		if c.name == "" {
+			t.Error("policy table holds a rule with no name")
+		}
+		if c.gate != GatePreflight && c.gate != GateInspect {
+			t.Errorf("check %q runs at gate %q, which no gate calls", c.name, c.gate)
+		}
+		if seen[c.name] {
+			t.Errorf("check %q is registered twice", c.name)
+		}
+		seen[c.name] = true
+	}
+}
+
+// Compare has to attribute a mismatch to the rule that found it, since the whole
+// refusal vocabulary is built on the check name.
+func TestCompareNamesTheFailingCheck(t *testing.T) {
+	mismatches := Compare(GatePreflight, populatedFacts(), differentFacts())
+
+	if len(mismatches) == 0 {
+		t.Fatal("Compare found nothing wrong between two entirely different machines")
+	}
+	for _, mismatch := range mismatches {
+		if mismatch.Check == "" {
+			t.Errorf("mismatch %+v does not name the check that reported it", mismatch)
 		}
 	}
 }

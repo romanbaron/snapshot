@@ -5,6 +5,7 @@ package controller
 
 import (
 	"context"
+	"runtime"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -100,7 +101,19 @@ func (w *NodeController) preflightMismatches(log logr.Logger, artifactPath strin
 		return nil
 	}
 
-	// Target facts are read by the rules that need them, since each one costs a
-	// syscall or an API read on a path that runs before every restore.
-	return w.compareFn(compat.GatePreflight, manifest.CompatFacts(), compat.Facts{})
+	return w.compareFn(compat.GatePreflight, manifest.CompatFacts(), w.preflightTargetFacts())
+}
+
+// preflightTargetFacts describes what this node offers a restore, as far as it
+// is knowable before the placeholder container exists. It is assembled per
+// restore from facts the agent already holds, so the gate costs no syscalls and
+// no API reads.
+func (w *NodeController) preflightTargetFacts() compat.Facts {
+	return compat.Facts{
+		Host: compat.HostFacts{
+			// The agent's own architecture, which is the node's: this binary
+			// could not be running here otherwise.
+			CPUArch: runtime.GOARCH,
+		},
+	}
 }

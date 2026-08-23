@@ -97,9 +97,20 @@ type check struct {
 }
 
 // checks is the policy table: every compatibility rule, in the order they are
-// reported, each pinned to the gate that can evaluate it. Rules are registered
-// one at a time; a table with no rules refuses nothing.
-var checks []check
+// reported, each pinned to the gate that can evaluate it.
+var checks = []check{
+	cpuArchCheck,
+}
+
+// mustMatch reports a mismatch unless the two values are identical. A value
+// absent on either side is unknown, and an unknown fact never refuses a restore:
+// a checkpoint captured before it was ever recorded has to stay restorable.
+func mustMatch(source, target string) []Mismatch {
+	if source == "" || target == "" || source == target {
+		return nil
+	}
+	return []Mismatch{{Source: source, Target: target}}
+}
 
 // Compare reports every rule the target fails at the given gate. An empty result
 // means the restore may proceed.

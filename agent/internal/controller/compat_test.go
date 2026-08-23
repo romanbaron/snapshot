@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
@@ -100,6 +101,27 @@ func TestPreflightMismatchesComparesRecordedFacts(t *testing.T) {
 	want := []string{"/etc/hosts", "/model-cache"}
 	if got := spy.calls[0].source.Mounts.Externalized; !reflect.DeepEqual(got, want) {
 		t.Fatalf("externalized mounts = %#v, want %#v", got, want)
+	}
+}
+
+// The gate compares the checkpoint against this node, so the target side has to
+// describe the node the agent is running on and not stay empty.
+func TestPreflightMismatchesDescribesThisNode(t *testing.T) {
+	w := makeTestController(t)
+	spy := &comparisonSpy{}
+	w.compareFn = spy.compare
+	dir := writeTestArtifact(t, w.config.Storage.BasePath, "abc123", &types.CheckpointManifest{
+		CheckpointID: "abc123",
+	})
+
+	if mismatches := w.preflightMismatches(w.log, dir); len(mismatches) != 0 {
+		t.Fatalf("preflightMismatches() = %v, want none", mismatches)
+	}
+	if len(spy.calls) != 1 {
+		t.Fatalf("comparison ran %d times, want once", len(spy.calls))
+	}
+	if got := spy.calls[0].target.Host.CPUArch; got != runtime.GOARCH {
+		t.Fatalf("target CPU architecture = %q, want %q", got, runtime.GOARCH)
 	}
 }
 
