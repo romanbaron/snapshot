@@ -19,6 +19,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"k8s.io/client-go/kubernetes"
 	podresourcesv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
+
+	"github.com/ai-dynamo/snapshot/api/compat"
 )
 
 const (
@@ -87,11 +89,12 @@ func GetPodGPUUUIDs(ctx context.Context, podName, podNamespace, containerName st
 	return uuids, nil
 }
 
-// GetGPUUUIDsViaNvidiaSmi discovers GPU UUIDs by running nvidia-smi inside the
-// container's mount and PID namespaces. This is the fallback path when the kubelet
-// PodResources API does not report GPU devices (e.g. when GPUs are allocated
-// via DRA instead of the NVIDIA device plugin).
-func GetGPUUUIDsViaNvidiaSmi(ctx context.Context, hostProcPath string, pid int) ([]string, error) {
+// DiscoverVisibleGPUFacts describes the GPUs a container can see, by running
+// nvidia-smi inside its mount and PID namespaces. The model and the driver
+// version come from the same call as the UUIDs: nothing else on the restore path
+// gets to look at the source node's GPUs, so what is not read here cannot be
+// compared later.
+func DiscoverVisibleGPUFacts(ctx context.Context, hostProcPath string, pid int) (compat.GPUFacts, error) {
 	mountPath := fmt.Sprintf("%s/%d/ns/mnt", strings.TrimRight(hostProcPath, "/"), pid)
 	pidPath := fmt.Sprintf("%s/%d/ns/pid", strings.TrimRight(hostProcPath, "/"), pid)
 	cmd := exec.CommandContext(
@@ -100,17 +103,51 @@ func GetGPUUUIDsViaNvidiaSmi(ctx context.Context, hostProcPath string, pid int) 
 		fmt.Sprintf("--mount=%s", mountPath),
 		fmt.Sprintf("--pid=%s", pidPath),
 		"--",
-		"nvidia-smi", "--query-gpu=gpu_uuid", "--format=csv,noheader",
+		"nvidia-smi", "--query-gpu=gpu_uuid,name,driver_version", "--format=csv,noheader",
 	)
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("nvidia-smi via nsenter (pid %d) failed: %w", pid, err)
+		return compat.GPUFacts{}, fmt.Errorf("nvidia-smi via nsenter (pid %d) failed: %w", pid, err)
+	}
+	return parseNvidiaSmiGPUFacts(string(output)), nil
+}
+
+// parseNvidiaSmiGPUFacts reads the unquoted CSV nvidia-smi writes. A row it
+// cannot make sense of still contributes its UUID, because the device map is
+// built from UUIDs and must not start failing over a model name.
+func parseNvidiaSmiGPUFacts(output string) compat.GPUFacts {
+	var facts compat.GPUFacts
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, ",", 3)
+		device := compat.GPUDevice{UUID: strings.TrimSpace(fields[0])}
+		if len(fields) == 3 {
+			device.ProductName = strings.TrimSpace(fields[1])
+			if driverVersion := strings.TrimSpace(fields[2]); driverVersion != "" {
+				facts.DriverVersion = driverVersion
+			}
+		}
+		facts.Devices = append(facts.Devices, device)
+	}
+	return facts
+}
+
+// GetGPUUUIDsViaNvidiaSmi is the UUID-only view of DiscoverVisibleGPUFacts, in
+// container ordinal order. This is the fallback path when the kubelet
+// PodResources API does not report GPU devices (e.g. when GPUs are allocated
+// via DRA instead of the NVIDIA device plugin).
+func GetGPUUUIDsViaNvidiaSmi(ctx context.Context, hostProcPath string, pid int) ([]string, error) {
+	facts, err := DiscoverVisibleGPUFacts(ctx, hostProcPath, pid)
+	if err != nil {
+		return nil, err
 	}
 	var uuids []string
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			uuids = append(uuids, line)
+	for _, device := range facts.Devices {
+		if device.UUID != "" {
+			uuids = append(uuids, device.UUID)
 		}
 	}
 	return uuids, nil

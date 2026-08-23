@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,62 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 	podresourcesv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
+
+	"github.com/ai-dynamo/snapshot/api/compat"
 )
+
+func TestParseNvidiaSmiGPUFacts(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+		want   compat.GPUFacts
+	}{
+		{
+			name:   "two GPUs on one driver",
+			output: "GPU-aaa, NVIDIA A100-SXM4-40GB, 580.65.06\nGPU-bbb, NVIDIA A100-SXM4-40GB, 580.65.06\n",
+			want: compat.GPUFacts{
+				DriverVersion: "580.65.06",
+				Devices: []compat.GPUDevice{
+					{UUID: "GPU-aaa", ProductName: "NVIDIA A100-SXM4-40GB"},
+					{UUID: "GPU-bbb", ProductName: "NVIDIA A100-SXM4-40GB"},
+				},
+			},
+		},
+		{
+			// The device map is built from UUIDs, so a row that loses its model
+			// still has to count as a GPU.
+			name:   "a row without a model still reports its GPU",
+			output: "GPU-aaa\nGPU-bbb, NVIDIA H100 80GB HBM3, 580.65.06\n",
+			want: compat.GPUFacts{
+				DriverVersion: "580.65.06",
+				Devices: []compat.GPUDevice{
+					{UUID: "GPU-aaa"},
+					{UUID: "GPU-bbb", ProductName: "NVIDIA H100 80GB HBM3"},
+				},
+			},
+		},
+		{
+			name:   "blank lines are not GPUs",
+			output: "\n\nGPU-aaa, NVIDIA L4, 580.65.06\n\n",
+			want: compat.GPUFacts{
+				DriverVersion: "580.65.06",
+				Devices:       []compat.GPUDevice{{UUID: "GPU-aaa", ProductName: "NVIDIA L4"}},
+			},
+		},
+		{
+			name:   "a node with no GPUs reports nothing",
+			output: "\n",
+			want:   compat.GPUFacts{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := parseNvidiaSmiGPUFacts(tc.output); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("parseNvidiaSmiGPUFacts() = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
 
 func TestBuildDeviceMap(t *testing.T) {
 	tests := []struct {
