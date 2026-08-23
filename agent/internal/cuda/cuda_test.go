@@ -440,7 +440,7 @@ func TestDiscoverGPUUUIDsOrdersDRAPodByContainerOrdinal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	got, err := discoverGPUUUIDs(
+	got, err := discoverGPUFacts(
 		ctx,
 		client,
 		podName,
@@ -448,22 +448,120 @@ func TestDiscoverGPUUUIDsOrdersDRAPodByContainerOrdinal(t *testing.T) {
 		"main",
 		"/proc",
 		123,
-		func(context.Context, string, int) ([]string, error) {
-			return []string{uuid0, uuid1}, nil
+		func(context.Context, string, int) (compat.GPUFacts, error) {
+			return compat.GPUFacts{
+				DriverVersion: "580.65.06",
+				Devices: []compat.GPUDevice{
+					{UUID: uuid0, ProductName: "NVIDIA A100-SXM4-40GB"},
+					{UUID: uuid1, ProductName: "NVIDIA A100-SXM4-40GB"},
+				},
+			}, nil
 		},
 		logr.Discard(),
 	)
 	if err != nil {
-		t.Fatalf("DiscoverGPUUUIDs: %v", err)
+		t.Fatalf("discoverGPUFacts: %v", err)
 	}
-	want := []string{uuid0, uuid1}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
+	// Ordered by the runtime, and still described: the DRA path used to reduce
+	// nvidia-smi's answer to an ordering and throw the rest away.
+	want := compat.GPUFacts{
+		DriverVersion: "580.65.06",
+		Devices: []compat.GPUDevice{
+			{UUID: uuid0, ProductName: "NVIDIA A100-SXM4-40GB"},
+			{UUID: uuid1, ProductName: "NVIDIA A100-SXM4-40GB"},
+		},
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %v, want %v", got, want)
-		}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("discoverGPUFacts() = %#v, want %#v", got, want)
+	}
+}
+
+// The kubelet path has its GPUs without nvidia-smi, so it never used to run it.
+// It runs it now for the model and driver version, and a failure there costs
+// those facts and nothing else.
+func TestDiscoverGPUFactsDescribesPodResourcesGPUs(t *testing.T) {
+	installTestPodResourcesServer(t, &podresourcesv1.ListPodResourcesResponse{
+		PodResources: []*podresourcesv1.PodResources{
+			{
+				Name:      "test-pod",
+				Namespace: "default",
+				Containers: []*podresourcesv1.ContainerResources{
+					{
+						Name: "main",
+						Devices: []*podresourcesv1.ContainerDevices{
+							{
+								ResourceName: nvidiaGPUResource,
+								DeviceIds:    []string{"GPU-a", "GPU-b"},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	tests := []struct {
+		name    string
+		visible func(context.Context, string, int) (compat.GPUFacts, error)
+		want    compat.GPUFacts
+	}{
+		{
+			name: "described in the kubelet's order",
+			visible: func(context.Context, string, int) (compat.GPUFacts, error) {
+				return compat.GPUFacts{
+					DriverVersion: "580.65.06",
+					Devices: []compat.GPUDevice{
+						{UUID: "GPU-b", ProductName: "NVIDIA L4"},
+						{UUID: "GPU-a", ProductName: "NVIDIA L4"},
+					},
+				}, nil
+			},
+			want: compat.GPUFacts{
+				DriverVersion: "580.65.06",
+				Devices: []compat.GPUDevice{
+					{UUID: "GPU-a", ProductName: "NVIDIA L4"},
+					{UUID: "GPU-b", ProductName: "NVIDIA L4"},
+				},
+			},
+		},
+		{
+			name: "undescribed when nvidia-smi cannot be reached",
+			visible: func(context.Context, string, int) (compat.GPUFacts, error) {
+				return compat.GPUFacts{}, errors.New("nsenter unavailable")
+			},
+			want: compat.GPUFacts{
+				Devices: []compat.GPUDevice{{UUID: "GPU-a"}, {UUID: "GPU-b"}},
+			},
+		},
+		{
+			name: "undescribed when nvidia-smi reports other GPUs",
+			visible: func(context.Context, string, int) (compat.GPUFacts, error) {
+				return compat.GPUFacts{
+					DriverVersion: "580.65.06",
+					Devices:       []compat.GPUDevice{{UUID: "GPU-z", ProductName: "NVIDIA L4"}},
+				}, nil
+			},
+			want: compat.GPUFacts{
+				DriverVersion: "580.65.06",
+				Devices:       []compat.GPUDevice{{UUID: "GPU-a"}, {UUID: "GPU-b"}},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			got, err := discoverGPUFacts(
+				ctx, nil, "test-pod", "default", "main", "/proc", 123, tc.visible, logr.Discard(),
+			)
+			if err != nil {
+				t.Fatalf("discoverGPUFacts: %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("discoverGPUFacts() = %#v, want %#v", got, tc.want)
+			}
+		})
 	}
 }
 
