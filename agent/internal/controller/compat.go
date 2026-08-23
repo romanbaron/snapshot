@@ -88,7 +88,12 @@ func limitString(limits corev1.ResourceList, name corev1.ResourceName) string {
 
 // preflightMismatches runs the pre-flight compatibility gate for one restore.
 // An empty result means the restore may be attempted.
-func (w *NodeController) preflightMismatches(log logr.Logger, artifactPath string) []compat.Mismatch {
+func (w *NodeController) preflightMismatches(
+	log logr.Logger,
+	pod *corev1.Pod,
+	containerName string,
+	artifactPath string,
+) []compat.Mismatch {
 	manifest, err := types.ReadManifest(artifactPath)
 	if err != nil {
 		// An unreadable manifest is not an incompatibility. The restore path
@@ -101,14 +106,18 @@ func (w *NodeController) preflightMismatches(log logr.Logger, artifactPath strin
 		return nil
 	}
 
-	return w.compareFn(compat.GatePreflight, manifest.CompatFacts(), w.preflightTargetFacts())
+	return w.compareFn(
+		compat.GatePreflight,
+		manifest.CompatFacts(),
+		w.preflightTargetFacts(pod, containerName),
+	)
 }
 
-// preflightTargetFacts describes what this node offers a restore, as far as it
-// is knowable before the placeholder container exists. It is assembled per
-// restore from facts the agent already holds, so the gate costs no syscalls and
-// no API reads.
-func (w *NodeController) preflightTargetFacts() compat.Facts {
+// preflightTargetFacts describes what this node and this pod offer a restore, as
+// far as it is knowable before the placeholder container exists. It is assembled
+// per restore from facts the agent already holds, so the gate costs no syscalls
+// and no API reads.
+func (w *NodeController) preflightTargetFacts(pod *corev1.Pod, containerName string) compat.Facts {
 	return compat.Facts{
 		Host: compat.HostFacts{
 			// The agent's own architecture, which is the node's: this binary
@@ -117,5 +126,6 @@ func (w *NodeController) preflightTargetFacts() compat.Facts {
 			KernelVersion: w.config.Host.KernelVersion,
 			AgentVersion:  w.config.Host.AgentVersion,
 		},
+		Pod: podFacts(pod, containerName),
 	}
 }

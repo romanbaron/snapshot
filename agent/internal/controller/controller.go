@@ -540,7 +540,7 @@ func (w *NodeController) startRestoreForContainer(
 			"pod_annotation", skipByPod,
 			"node_config", skipByNode,
 		)
-	} else if mismatches := w.preflightMismatches(gateLog, artifactPath); len(mismatches) > 0 {
+	} else if mismatches := w.preflightMismatches(gateLog, pod, containerName, artifactPath); len(mismatches) > 0 {
 		w.reportRefusal(ctx, gateLog, refusedRestore{
 			pod:           pod,
 			containerName: containerName,

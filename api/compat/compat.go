@@ -103,6 +103,8 @@ var checks = []check{
 	kernelVersionCheck,
 	kernelMinimumCheck,
 	agentVersionCheck,
+	imageCheck,
+	imageDigestCheck,
 }
 
 // mustMatch reports a mismatch unless the two values are identical. A value

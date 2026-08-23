@@ -67,7 +67,7 @@ func TestPreflightMismatchesAllowsUnreadableManifest(t *testing.T) {
 	w.compareFn = spy.compare
 	dir := writeTestArtifact(t, w.config.Storage.BasePath, "abc123", nil)
 
-	if mismatches := w.preflightMismatches(w.log, dir); len(mismatches) != 0 {
+	if mismatches := w.preflightMismatches(w.log, nil, "main", dir); len(mismatches) != 0 {
 		t.Fatalf("preflightMismatches() = %v, want none", mismatches)
 	}
 	if len(spy.calls) != 0 {
@@ -89,7 +89,7 @@ func TestPreflightMismatchesComparesRecordedFacts(t *testing.T) {
 		},
 	})
 
-	if mismatches := w.preflightMismatches(w.log, dir); len(mismatches) != 0 {
+	if mismatches := w.preflightMismatches(w.log, nil, "main", dir); len(mismatches) != 0 {
 		t.Fatalf("preflightMismatches() = %v, want none", mismatches)
 	}
 	if len(spy.calls) != 1 {
@@ -104,9 +104,9 @@ func TestPreflightMismatchesComparesRecordedFacts(t *testing.T) {
 	}
 }
 
-// The gate compares the checkpoint against this node, so the target side has to
-// describe the node the agent is running on and not stay empty.
-func TestPreflightMismatchesDescribesThisNode(t *testing.T) {
+// The gate compares the checkpoint against where it would be restored, so the
+// target side has to describe this node and this pod rather than stay empty.
+func TestPreflightMismatchesDescribesTheRestoreTarget(t *testing.T) {
 	w := makeTestController(t)
 	w.config.Host.KernelVersion = "5.15.0-1071-aws"
 	w.config.Host.AgentVersion = "0.4.1"
@@ -115,20 +115,36 @@ func TestPreflightMismatchesDescribesThisNode(t *testing.T) {
 	dir := writeTestArtifact(t, w.config.Storage.BasePath, "abc123", &types.CheckpointManifest{
 		CheckpointID: "abc123",
 	})
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name:  "main",
+			Image: "nvcr.io/nvidia/tritonserver:24.09-py3",
+		}}},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+			{Name: "main", ImageID: "sha256:deadbeef"},
+		}},
+	}
 
-	if mismatches := w.preflightMismatches(w.log, dir); len(mismatches) != 0 {
+	if mismatches := w.preflightMismatches(w.log, pod, "main", dir); len(mismatches) != 0 {
 		t.Fatalf("preflightMismatches() = %v, want none", mismatches)
 	}
 	if len(spy.calls) != 1 {
 		t.Fatalf("comparison ran %d times, want once", len(spy.calls))
 	}
-	want := compat.HostFacts{
+	wantHost := compat.HostFacts{
 		CPUArch:       runtime.GOARCH,
 		KernelVersion: "5.15.0-1071-aws",
 		AgentVersion:  "0.4.1",
 	}
-	if got := spy.calls[0].target.Host; !reflect.DeepEqual(got, want) {
-		t.Fatalf("target host facts = %#v, want %#v", got, want)
+	if got := spy.calls[0].target.Host; !reflect.DeepEqual(got, wantHost) {
+		t.Fatalf("target host facts = %#v, want %#v", got, wantHost)
+	}
+	wantPod := compat.PodFacts{
+		Image:   "nvcr.io/nvidia/tritonserver:24.09-py3",
+		ImageID: "sha256:deadbeef",
+	}
+	if got := spy.calls[0].target.Pod; !reflect.DeepEqual(got, wantPod) {
+		t.Fatalf("target pod facts = %#v, want %#v", got, wantPod)
 	}
 }
 
