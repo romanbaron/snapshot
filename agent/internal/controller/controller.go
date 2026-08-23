@@ -478,11 +478,14 @@ func (w *NodeController) startRestoreForContainer(
 	}
 	annotationStatus := pod.Annotations[annotationKeys.Status]
 	annotationContainerID := pod.Annotations[annotationKeys.ContainerID]
-	if annotationStatus == snapshotv1alpha1.RestoreStatusIncompatible {
+	skipCompatCheck := snapshotv1alpha1.SkipCompatCheckFromAnnotations(pod.Annotations)
+	if annotationStatus == snapshotv1alpha1.RestoreStatusIncompatible && !skipCompatCheck {
 		// Deliberately ignores the recorded container ID, unlike the terminal
 		// statuses below. A refusal is a fact about this node and this
 		// checkpoint, so a restarted container gets the same answer: re-reading
 		// the manifest and re-reporting on every resync would only add noise.
+		// The skip request is the way out, which is why it is read first: it has
+		// to reach a pod that has already been turned down.
 		return
 	}
 	if annotationContainerID == containerID && (annotationStatus == snapshotv1alpha1.RestoreStatusCompleted || annotationStatus == snapshotv1alpha1.RestoreStatusFailed) {
@@ -514,7 +517,11 @@ func (w *NodeController) startRestoreForContainer(
 	// captured on is readable, and still before the attempt is claimed, so a
 	// refusal leaves no in-flight state behind.
 	gateLog := w.log.WithValues("pod", podKey, "container", containerName, "checkpoint_id", checkpointID)
-	if mismatches := w.preflightMismatches(gateLog, artifactPath); len(mismatches) > 0 {
+	if skipCompatCheck {
+		gateLog.Info("Restore compatibility check skipped by request",
+			"annotation", snapshotv1alpha1.SkipCompatCheckAnnotation,
+		)
+	} else if mismatches := w.preflightMismatches(gateLog, artifactPath); len(mismatches) > 0 {
 		w.reportRefusal(ctx, gateLog, refusedRestore{
 			pod:           pod,
 			containerName: containerName,

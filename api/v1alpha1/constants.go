@@ -41,6 +41,12 @@ const (
 	// Full keys are nvidia.com/snapshot-restore-reason.<containerName>. Carries
 	// why a restore was refused, so the pod explains itself without agent logs.
 	RestoreReasonAnnotationPrefix = "nvidia.com/snapshot-restore-reason."
+
+	// SkipCompatCheckAnnotation turns the restore compatibility gate off for
+	// one restore pod, whether it is stamped on the pod template up front or
+	// added to a pod the gate already turned down. It is the per-restore escape
+	// hatch; restore.skipCompatCheck in the agent ConfigMap is the per-node one.
+	SkipCompatCheckAnnotation = "nvidia.com/snapshot-skip-compat-check"
 	// Legacy unscoped restore status keys, cleared when stamping fresh metadata.
 	RestoreStatusAnnotation      = "nvidia.com/snapshot-restore-status"
 	RestoreContainerIDAnnotation = "nvidia.com/snapshot-restore-container-id"

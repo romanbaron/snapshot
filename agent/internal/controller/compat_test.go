@@ -5,6 +5,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -287,6 +288,59 @@ func TestReconcileRestorePodSkipsAlreadyRefusedContainer(t *testing.T) {
 	if len(r.controller.inFlight) != 0 {
 		t.Fatalf("already refused restore claimed an attempt: %#v", r.controller.inFlight)
 	}
+}
+
+// The per-restore escape hatch: with the annotation set, the gate does not run
+// at all, so a checkpoint the policy table would turn down is still attempted.
+func TestSkipCompatCheckAnnotationTurnsOffGateA(t *testing.T) {
+	mismatch := compat.Mismatch{Check: "cpu-arch", Source: "amd64", Target: "arm64"}
+
+	// Lets the restore start and end quickly, since the point here is only
+	// whether the gate let it through.
+	attempt := func(t *testing.T, r *refusal) <-chan struct{} {
+		t.Helper()
+		r.controller.restoreFn = func(context.Context, snapshotruntime.Runtime, logr.Logger, executor.RestoreRequest, executor.RestoreMounter) (int, error) {
+			return 0, errors.New("test restore stopped")
+		}
+		return observeEventReason(r.clientset(t), "RestoreWorkerFailed")
+	}
+
+	t.Run("gate never runs", func(t *testing.T) {
+		r := newRefusal(t, mismatch)
+		r.pod.Annotations[snapshotv1alpha1.SkipCompatCheckAnnotation] = "true"
+		finished := attempt(t, r)
+
+		r.reconcile(t)
+		waitForSignal(t, finished, "the restore worker to run")
+
+		if len(r.comparison.calls) != 0 {
+			t.Fatalf("skipped gate compared anyway: %#v", r.comparison.calls)
+		}
+		if len(r.events(t, restoreIncompatibleReason)) != 0 {
+			t.Fatal("skipped gate refused the restore")
+		}
+	})
+
+	// The annotation has to reach a pod the gate already turned down, or the
+	// only way out of a wrong refusal is deleting annotations by hand.
+	t.Run("reaches an already refused pod", func(t *testing.T) {
+		keys, err := snapshotv1alpha1.RestoreStatusAnnotationKeysFor("main")
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := newRefusal(t, mismatch)
+		r.pod.Annotations[keys.Status] = snapshotv1alpha1.RestoreStatusIncompatible
+		r.pod.Annotations[keys.Reason] = mismatch.Reason()
+		r.pod.Annotations[snapshotv1alpha1.SkipCompatCheckAnnotation] = "true"
+		finished := attempt(t, r)
+
+		r.reconcile(t)
+		waitForSignal(t, finished, "the restore worker to run")
+
+		if len(r.comparison.calls) != 0 {
+			t.Fatalf("skipped gate compared anyway: %#v", r.comparison.calls)
+		}
+	})
 }
 
 // A refusal that reaches the worker from the second gate is terminal: it is not
